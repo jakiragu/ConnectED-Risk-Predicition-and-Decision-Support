@@ -1,0 +1,22 @@
+{
+  "name": "connected-ed-risk-prediction",
+  "private": true,
+  "type": "module",
+  "workspaces": ["backend/library"],
+  "scripts": {
+    "db:infra": "docker compose -f local/docker-compose.yml up -d",
+    "db:down": "docker compose -f local/docker-compose.yml down",
+    "db:create": "node local/create-table.js",
+    "db:reset": "node local/create-table.js --reset",
+    "db:seed": "node local/seed.js --reset",
+    "db:verify": "node local/verify.js",
+    "test": "node local/verify.js",
+    "setup": "npm run db:infra && sleep 3 && npm run db:seed && npm run db:verify"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/client-s3": "^3.658.0",
+    "@aws-sdk/lib-dynamodb": "^3.658.0",
+    "dotenv": "^16.4.5"
+  }
+}
