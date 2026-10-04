@@ -1,0 +1,48 @@
+/*
+  Tokens transcribed from the ConnectED prototype. The prototype is the brief,
+  so these are measurements rather than choices: deep teal on pale cyan, white
+  cards outlined rather than shadowed, red reserved for destructive actions.
+*/
+:root {
+  --bg: #e4f7fb;
+  --surface: #ffffff;
+  --surface-alt: #eaf8fb;
+
+  --ink: #0a4c55;
+  --ink-strong: #063b43;
+  --body: #16333a;
+  --muted: #5c7d84;
+
+  --accent: #14b4c8;
+  --danger: #e02b2b;
+  --success: #12924a;
+  --warning: #b8730c;
+
+  --line: #0a4c55;
+  --line-soft: #a9d3db;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --font: 'Quicksand', ui-rounded, 'Segoe UI', system-ui, sans-serif;
+
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-base: 1rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.563rem;
+  --t-2xl: 1.953rem;
+  --t-3xl: 2.441rem;
+
+  --sidebar-w: 264px;
+  --topbar-h: 64px;
+}

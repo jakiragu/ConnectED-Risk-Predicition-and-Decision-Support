@@ -5,9 +5,7 @@
   "type": "module",
   "description": "Pure gradebook business rules, shared by the Lambda services and the React client.",
   "exports": {
-    "./assessment": "./domain/assessment.js",
-    "./score": "./domain/score.js",
-    "./conflict": "./domain/conflict.js",
-    "./ids": "./domain/ids.js"
+    "./assessment": "./assessment.js",
+    "./ids": "./ids.js"
   }
 }

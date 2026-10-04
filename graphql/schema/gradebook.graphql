@@ -1,0 +1,87 @@
+
+scalar AWSDate
+scalar AWSDateTime
+
+enum AssessmentStatus { UNRECORDED RECORDING RECORDED LOCKED }
+
+type Assessment {
+  assessment_id: ID!          
+  school_id: ID!              
+  class_id: ID!               
+  subject: String!            
+  title: String!              
+  assessment_type: String!    
+  weight: Float!              
+  due_date: AWSDate           
+  created_at: AWSDateTime!    
+
+  max_score: Float!           
+  term_id: ID!                
+  status: AssessmentStatus!    
+  updated_at: AWSDateTime!
+  created_by: ID
+  updated_by: ID
+  _version: Int!
+  _lastChangedAt: Float!
+  _deleted: Boolean!
+}
+
+type Class {
+  class_id: ID!
+  school_id: ID!
+  name: String!
+  grade: String!
+  stream: String!
+  year: Int
+  status: String
+}
+
+type Connection_Assessment {
+  items: [Assessment!]!
+  nextToken: String
+}
+
+input CreateAssessmentInput {
+  assessment_id: ID          # client-generated ULID; makes a retry idempotent
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  subject: String!
+  title: String!
+  assessment_type: String!
+  weight: Float!
+  max_score: Float!
+  due_date: AWSDate
+}
+
+input UpdateAssessmentInput {
+  assessment_id: ID!
+  school_id: ID!
+  title: String
+  assessment_type: String
+  weight: Float
+  max_score: Float
+  due_date: AWSDate
+  _version: Int!             # optimistic concurrency; the write fails if stale
+}
+
+input DeleteAssessmentInput {
+  assessment_id: ID!
+  school_id: ID!
+  _version: Int!             # you may only delete the version you were looking at
+}
+
+type Query {
+  getAssessment(school_id: ID!, assessment_id: ID!): Assessment
+  listAssessmentsByClass(
+    school_id: ID!, class_id: ID!, term_id: ID!, limit: Int, nextToken: String
+  ): Connection_Assessment!
+  listMyClasses(school_id: ID!): [Class!]!
+}
+
+type Mutation {
+  createAssessment(input: CreateAssessmentInput!): Assessment
+  updateAssessment(input: UpdateAssessmentInput!): Assessment
+  lockAssessment(school_id: ID!, assessment_id: ID!): Assessment
+  deleteAssessment(input: DeleteAssessmentInput!): ID!   
+}
