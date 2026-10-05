@@ -6,6 +6,7 @@
   "description": "Pure gradebook business rules, shared by the Lambda services and the React client.",
   "exports": {
     "./assessment": "./assessment.js",
-    "./ids": "./ids.js"
+    "./ids": "./ids.js",
+    "./score": "./score.js"
   }
 }

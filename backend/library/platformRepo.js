@@ -2,11 +2,6 @@ import { GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb } from './client.js';
 import { TABLE, pk, sk } from './keys.js';
 
-/**
- * Reads of platform data the gradebook depends on but does not own. Kept
- * separate from assessmentRepo so that when Students, Teachers and Classes move
- * to their own CSG module, only this file changes.
- */
 
 export async function teacher(schoolId, teacherId) {
   const { Item } = await ddb.send(
@@ -15,7 +10,6 @@ export async function teacher(schoolId, teacherId) {
   return Item || null;
 }
 
-/** Class ids this teacher is assigned to. An empty array denies everything. */
 export async function assignments(schoolId, teacherId) {
   const t = await teacher(schoolId, teacherId);
   return t?.class_ids || [];
@@ -30,4 +24,24 @@ export async function listClasses(schoolId) {
     })
   );
   return (res.Items || []).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function roster(schoolId, classId) {
+  const out = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        KeyConditionExpression: 'PK = :p AND begins_with(SK, :s)',
+        FilterExpression: 'class_id = :c AND (attribute_not_exists(#st) OR #st = :active)',
+        ExpressionAttributeNames: { '#st': 'status' },
+        ExpressionAttributeValues: { ':p': pk(schoolId), ':s': 'STUDENT#', ':c': classId, ':active': 'ACTIVE' },
+        ExclusiveStartKey,
+      })
+    );
+    out.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return out.sort((a, b) => String(a.admission_no).localeCompare(String(b.admission_no), undefined, { numeric: true }));
 }

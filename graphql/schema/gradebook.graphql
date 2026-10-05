@@ -3,27 +3,56 @@ scalar AWSDate
 scalar AWSDateTime
 
 enum AssessmentStatus { UNRECORDED RECORDING RECORDED LOCKED }
+enum ItemOutcome { APPLIED REJECTED CONFLICT }
 
 type Assessment {
-  assessment_id: ID!          
-  school_id: ID!              
-  class_id: ID!               
-  subject: String!            
-  title: String!              
-  assessment_type: String!    
-  weight: Float!              
-  due_date: AWSDate           
-  created_at: AWSDateTime!    
+  assessment_id: ID!
+  school_id: ID!
+  class_id: ID!
+  subject: String!
+  title: String!
+  assessment_type: String!
+  weight: Float!
+  due_date: AWSDate
+  created_at: AWSDateTime!
 
-  max_score: Float!           
-  term_id: ID!                
-  status: AssessmentStatus!    
+  max_score: Float!
+  term_id: ID!
+  status: AssessmentStatus!   # A-09: derived from score_count and class size; only LOCKED is stored
+  score_count: Int!           # maintained atomically by every score write
   updated_at: AWSDateTime!
   created_by: ID
   updated_by: ID
+  deleted_at: AWSDateTime     # A-16: set while soft-deleted
+  deleted_by: ID
   _version: Int!
   _lastChangedAt: Float!
   _deleted: Boolean!
+}
+
+type Score {
+  score_id: ID!
+  school_id: ID!
+  assessment_id: ID!
+  student_id: ID!
+  raw_score: Float!
+  normalized_score: Float
+  entered_by: ID
+  entered_at: AWSDateTime!
+  updated_at: AWSDateTime!
+  _version: Int!
+  _lastChangedAt: Float!
+  _deleted: Boolean!
+}
+
+type Student {
+  student_id: ID!
+  school_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String!
+  class_id: ID
+  status: String
 }
 
 type Class {
@@ -39,6 +68,25 @@ type Class {
 type Connection_Assessment {
   items: [Assessment!]!
   nextToken: String
+}
+
+type Connection_Score {
+  items: [Score!]!
+  nextToken: String
+}
+
+type ItemResult {
+  student_id: ID!
+  outcome: ItemOutcome!
+  reason: String
+  item: Score                 # the server's state after the call; null if there is no mark
+}
+
+type SubmitScoresResult {
+  accepted: Int!
+  rejected: Int!
+  conflicted: Int!
+  results: [ItemResult!]!
 }
 
 input CreateAssessmentInput {
@@ -71,17 +119,36 @@ input DeleteAssessmentInput {
   _version: Int!             # you may only delete the version you were looking at
 }
 
+input ScoreEntryInput {
+  student_id: ID!
+  raw_score: Float           # null clears an existing mark
+  _version: Int              # null => new mark; set => the version you were editing
+}
+
+input SubmitScoresInput {
+  school_id: ID!
+  assessment_id: ID!
+  entries: [ScoreEntryInput!]!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   listAssessmentsByClass(
     school_id: ID!, class_id: ID!, term_id: ID!, limit: Int, nextToken: String
   ): Connection_Assessment!
+  listDeletedAssessments(school_id: ID!, class_id: ID!, term_id: ID!): [Assessment!]!
   listMyClasses(school_id: ID!): [Class!]!
+  getClassRoster(school_id: ID!, class_id: ID!): [Student!]!
+  listScoresByAssessment(school_id: ID!, assessment_id: ID!): Connection_Score!
 }
 
 type Mutation {
   createAssessment(input: CreateAssessmentInput!): Assessment
   updateAssessment(input: UpdateAssessmentInput!): Assessment
   lockAssessment(school_id: ID!, assessment_id: ID!): Assessment
-  deleteAssessment(input: DeleteAssessmentInput!): ID!   
+  unlockAssessment(school_id: ID!, assessment_id: ID!): Assessment   #  admin, before results are published
+  deleteAssessment(input: DeleteAssessmentInput!): ID!         # hard delete, befor marks are entered
+  softDeleteAssessment(input: DeleteAssessmentInput!): ID!     # sof delte by admin, cascades to marks
+  restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores delted assessment and marks
+  submitScores(input: SubmitScoresInput!): SubmitScoresResult!
 }

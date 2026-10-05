@@ -35,9 +35,15 @@ async function run() {
     INDEXES.map((i) => i.name));
   check('change recording is on', Table.StreamSpecification?.StreamEnabled, true);
 
-  // 2. Everything is in the school's drawer.
-  const all = await ddb.send(new ScanCommand({ TableName: TABLE, Select: 'COUNT' }));
-  check('total items', all.Count, 349);
+  // 2. Everything the seed wrote is still in the school's drawer. Rows the app
+  //    writes (assessments, marks, their audit trail, term locks) are excluded.
+  const seededOnly = {
+    FilterExpression: 'NOT (#e IN (:a, :s, :sa, :tl))',
+    ExpressionAttributeNames: { '#e': 'entity' },
+    ExpressionAttributeValues: { ':a': 'Assessment', ':s': 'Score', ':sa': 'ScoreAudit', ':tl': 'TermLock' },
+  };
+  const all = await ddb.send(new ScanCommand({ TableName: TABLE, Select: 'COUNT', ...seededOnly }));
+  check('seeded items intact', all.Count, 349);
 
   // 3. "All students at this school" - one lookup by folder prefix.
   const allStudents = await ddb.send(new QueryCommand({
@@ -91,12 +97,14 @@ async function run() {
   check('pass mark is 50', rule.Item?.pass_mark, 50);
   check('grading scale has 9 bands', rule.Item?.bands?.length, 9);
 
-  // 8. GSI1 is empty, and that is correct: nothing seeded carries a GSI1PK.
-  //    The first assessment created in Sprint 2 will make this 1.
+  // 8. GSI1 is the class+term index, and only assessments belong in it.
   const gsi1 = await ddb.send(new ScanCommand({
     TableName: TABLE, IndexName: 'GSI1', Select: 'COUNT',
+    FilterExpression: '#e <> :a',
+    ExpressionAttributeNames: { '#e': 'entity' },
+    ExpressionAttributeValues: { ':a': 'Assessment' },
   }));
-  check('GSI1 empty until assessments exist', gsi1.Count, 0);
+  check('GSI1 holds only assessments', gsi1.Count, 0);
 
   // 9. Badges work, and a tampered badge is rejected.
   const token = issueToken({

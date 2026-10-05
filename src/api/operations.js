@@ -1,14 +1,11 @@
-/**
- * Every GraphQL document the app sends, in one file.
- *
- * Keeping them here rather than inline in components means the field lists can
- * be checked against graphql/schema/gradebook.graphql by eye, and the offline
- * repository in a later sprint has exactly one place to intercept.
- */
-
 const ASSESSMENT_FIELDS = `
   assessment_id school_id class_id term_id subject title assessment_type
-  weight max_score due_date status created_at updated_at _version
+  weight max_score due_date status score_count created_at updated_at
+  deleted_at deleted_by _version
+`;
+
+const SCORE_FIELDS = `
+  score_id assessment_id student_id raw_score normalized_score entered_by entered_at updated_at _version
 `;
 
 export const LIST_MY_CLASSES = `
@@ -23,6 +20,13 @@ export const LIST_ASSESSMENTS = `
     listAssessmentsByClass(school_id: $school_id, class_id: $class_id, term_id: $term_id) {
       nextToken
       items { ${ASSESSMENT_FIELDS} }
+    }
+  }`;
+
+export const LIST_DELETED_ASSESSMENTS = `
+  query ListDeletedAssessments($school_id: ID!, $class_id: ID!, $term_id: ID!) {
+    listDeletedAssessments(school_id: $school_id, class_id: $class_id, term_id: $term_id) {
+      ${ASSESSMENT_FIELDS}
     }
   }`;
 
@@ -50,7 +54,48 @@ export const LOCK_ASSESSMENT = `
     }
   }`;
 
+export const UNLOCK_ASSESSMENT = `
+  mutation UnlockAssessment($school_id: ID!, $assessment_id: ID!) {
+    unlockAssessment(school_id: $school_id, assessment_id: $assessment_id) {
+      ${ASSESSMENT_FIELDS}
+    }
+  }`;
+
 export const DELETE_ASSESSMENT = `
   mutation DeleteAssessment($input: DeleteAssessmentInput!) {
     deleteAssessment(input: $input)
+  }`;
+
+export const SOFT_DELETE_ASSESSMENT = `
+  mutation SoftDeleteAssessment($input: DeleteAssessmentInput!) {
+    softDeleteAssessment(input: $input)
+  }`;
+
+export const RESTORE_ASSESSMENT = `
+  mutation RestoreAssessment($school_id: ID!, $assessment_id: ID!) {
+    restoreAssessment(school_id: $school_id, assessment_id: $assessment_id) {
+      ${ASSESSMENT_FIELDS}
+    }
+  }`;
+
+export const GET_CLASS_ROSTER = `
+  query GetClassRoster($school_id: ID!, $class_id: ID!) {
+    getClassRoster(school_id: $school_id, class_id: $class_id) {
+      student_id first_name last_name admission_no class_id
+    }
+  }`;
+
+export const LIST_SCORES = `
+  query ListScores($school_id: ID!, $assessment_id: ID!) {
+    listScoresByAssessment(school_id: $school_id, assessment_id: $assessment_id) {
+      items { ${SCORE_FIELDS} }
+    }
+  }`;
+
+export const SUBMIT_SCORES = `
+  mutation SubmitScores($input: SubmitScoresInput!) {
+    submitScores(input: $input) {
+      accepted rejected conflicted
+      results { student_id outcome reason item { ${SCORE_FIELDS} } }
+    }
   }`;

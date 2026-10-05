@@ -136,6 +136,15 @@ td.actions { display: flex; gap: var(--space-3); align-items: center; }
 .pill.recorded { color: var(--success); }
 .pill.locked { color: var(--muted); }
 
+/* ------------------------------------------------------------ score entry */
+
+.score-table .mark-input { width: 5.5rem; padding: 6px var(--space-2); text-align: right; }
+.score-table tr.row-dirty td { background: var(--surface-alt); }
+.score-table tr.row-error .mark-input { border-color: var(--danger); }
+.score-table .ok { color: var(--success); font-size: var(--t-xs); }
+.score-table .warn { color: var(--warning); font-size: var(--t-xs); }
+.notice { border: 1px solid var(--warning); color: var(--warning); border-radius: var(--radius); padding: var(--space-3); font-size: var(--t-sm); }
+
 @media (max-width: 880px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--line-soft); }

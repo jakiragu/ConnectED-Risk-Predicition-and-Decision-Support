@@ -46,3 +46,9 @@ export function assertCanLock(actor) {
     throw forbidden('Only a head teacher or administrator can lock an assessment');
   }
 }
+
+export function assertAdmin(actor) {
+  if (!hasRole(actor, ROLE.ADMIN)) {
+    throw forbidden('Only an administrator can do this');
+  }
+}

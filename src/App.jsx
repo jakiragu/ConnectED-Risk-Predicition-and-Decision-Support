@@ -5,6 +5,7 @@ import SignIn from './pages/SignIn.jsx';
 import Classes from './pages/Classes.jsx';
 import Assessments from './pages/Assessment.jsx';
 import AssessmentForm from './pages/AssessmentForm.jsx';
+import ScoreEntry from './pages/ScoreEntry.jsx';
 
 function RequireAuth({ children }) {
   const { actor } = useAuth();
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="assessments" element={<Assessments />} />
         <Route path="assessments/new" element={<AssessmentForm />} />
         <Route path="assessments/:assessmentId/edit" element={<AssessmentForm />} />
+        <Route path="assessments/:assessmentId/scores" element={<ScoreEntry />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -53,6 +53,7 @@ export default function AssessmentForm() {
   const [siblings, setSiblings] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [version, setVersion] = useState(null);
+  const [scoreCount, setScoreCount] = useState(0);
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -84,6 +85,7 @@ export default function AssessmentForm() {
         }
         setClassId(a.class_id);
         setVersion(a._version);
+        setScoreCount(a.score_count || 0);
         setForm({
           title: a.title,
           subject: a.subject,
@@ -242,7 +244,7 @@ export default function AssessmentForm() {
             />
           </Field>
 
-          <Field label="Marked out of" htmlFor="max" error={errors.max_score}>
+          <Field label="Marked out of" htmlFor="max" error={errors.max_score} hint={scoreCount > 0 ? 'Fixed once marks have been recorded' : undefined}>
             <input
               id="max"
               type="number"
@@ -250,6 +252,7 @@ export default function AssessmentForm() {
               value={form.max_score}
               onChange={(e) => set('max_score')(e.target.value)}
               aria-invalid={Boolean(errors.max_score)}
+              disabled={scoreCount > 0}
             />
           </Field>
 
