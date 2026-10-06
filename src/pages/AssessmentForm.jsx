@@ -6,13 +6,11 @@ import {
   ASSESSMENT_TYPES,
 } from '@gradebook/domain/assessment';
 import { gql } from '../api/graphql.js';
-import {
-  CREATE_ASSESSMENT,
-  GET_ASSESSMENT,
-  LIST_ASSESSMENTS,
-  LIST_MY_CLASSES,
-  UPDATE_ASSESSMENT,
-} from '../api/operations.js';
+import { GET_ASSESSMENT, UPDATE_ASSESSMENT } from '../api/operations.js';
+import { db } from '../offline/db.js';
+import { repository } from '../offline/repository.js';
+import { useLive } from '../offline/useLive.js';
+import { useSync } from '../offline/useSync.js';
 import { ulid } from '@gradebook/domain/ids';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
@@ -29,18 +27,6 @@ const EMPTY = {
   due_date: '',
 };
 
-/**
- * Sprint 3, write side. One component for create and edit, because the rules
- * and the fields are the same and the only difference is which mutation runs.
- *
- * The form validates with @gradebook/domain/assessment — the identical module
- * the Lambda runs — so the teacher sees the same message about the weight
- * ceiling the server would have given them. The server still re-runs it: this
- * copy is for speed and wording, not for trust.
- *
- * The ULID is minted here rather than on the server. That costs nothing today
- * and is what makes a retried create idempotent instead of duplicating the row.
- */
 export default function AssessmentForm() {
   const { actor } = useAuth();
   const navigate = useNavigate();
@@ -49,8 +35,13 @@ export default function AssessmentForm() {
   const isEdit = Boolean(assessmentId);
 
   const [classId, setClassId] = useState(params.get('class') || '');
-  const [classes, setClasses] = useState([]);
-  const [siblings, setSiblings] = useState([]);
+  const { online } = useSync();
+  const classes = useLive(() => db().classes.toArray(), [], []);
+  const siblings = useLive(
+    () => (classId ? db().assessments.where('[class_id+term_id]').equals([classId, TERM_ID]).toArray() : []),
+    [classId],
+    []
+  );
   const [form, setForm] = useState(EMPTY);
   const [version, setVersion] = useState(null);
   const [scoreCount, setScoreCount] = useState(0);
@@ -59,19 +50,12 @@ export default function AssessmentForm() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    gql(LIST_MY_CLASSES, { school_id: actor.schoolId })
-      .then((res) => setClasses(res.listMyClasses))
-      .catch((e) => setFailure(e.message));
+    repository.loadClasses(actor.schoolId).catch((e) => setFailure(e.message));
   }, [actor.schoolId]);
 
-  // Siblings drive the weight budget, so they are reloaded whenever the class
-  // changes. Without them the ceiling check on the client would pass wrongly
-  // and the teacher would only learn of the problem from the server.
   useEffect(() => {
     if (!classId) return;
-    gql(LIST_ASSESSMENTS, { school_id: actor.schoolId, class_id: classId, term_id: TERM_ID })
-      .then((res) => setSiblings(res.listAssessmentsByClass.items))
-      .catch((e) => setFailure(e.message));
+    repository.loadAssessments(actor.schoolId, classId, TERM_ID).catch((e) => setFailure(e.message));
   }, [actor.schoolId, classId]);
 
   useEffect(() => {
@@ -108,7 +92,10 @@ export default function AssessmentForm() {
   async function submit(e) {
     e.preventDefault();
     setFailure(null);
-
+    if (isEdit && !online) {
+      setFailure('Editing an assessment needs a connection. New assessments can be added offline.');
+      return;
+    }
     const candidate = {
       ...form,
       assessment_id: assessmentId,
@@ -144,8 +131,8 @@ export default function AssessmentForm() {
           },
         });
       } else {
-        await gql(CREATE_ASSESSMENT, {
-          input: {
+        await repository.createAssessment(
+          {
             assessment_id: ulid(),
             school_id: actor.schoolId,
             class_id: classId,
@@ -157,12 +144,10 @@ export default function AssessmentForm() {
             max_score: candidate.max_score,
             due_date: candidate.due_date,
           },
-        });
+          actor);
       }
       navigate(`/assessments?class=${classId}`);
     } catch (err) {
-      // The server labels the field it rejected, so a server-side failure lands
-      // under the same input as a client-side one.
       if (err.field) setErrors({ [err.field]: err.message });
       else setFailure(err.message);
       setSaving(false);

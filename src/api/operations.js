@@ -5,7 +5,9 @@ const ASSESSMENT_FIELDS = `
 `;
 
 const SCORE_FIELDS = `
-  score_id assessment_id student_id raw_score normalized_score entered_by entered_at updated_at _version
+  score_id assessment_id student_id class_id raw_score normalized_score status
+  conflict_with_score conflict_with_user conflict_at entered_by entered_at updated_at
+  _version _lastChangedAt _deleted
 `;
 
 export const LIST_MY_CLASSES = `
@@ -95,7 +97,20 @@ export const LIST_SCORES = `
 export const SUBMIT_SCORES = `
   mutation SubmitScores($input: SubmitScoresInput!) {
     submitScores(input: $input) {
-      accepted rejected conflicted
+      accepted rejected review conflicted
       results { student_id outcome reason item { ${SCORE_FIELDS} } }
     }
+  }`;
+
+  export const SYNC_SCORES = `
+  query SyncScores($school_id: ID!, $class_id: ID!, $lastSync: Float, $nextToken: String) {
+    syncScores(school_id: $school_id, class_id: $class_id, lastSync: $lastSync, nextToken: $nextToken) {
+      startedAt nextToken
+      items { ${SCORE_FIELDS} }
+    }
+  }`;
+
+export const RESOLVE_SCORE_CONFLICT = `
+  mutation ResolveScoreConflict($input: ResolveScoreConflictInput!) {
+    resolveScoreConflict(input: $input) { ${SCORE_FIELDS} }
   }`;

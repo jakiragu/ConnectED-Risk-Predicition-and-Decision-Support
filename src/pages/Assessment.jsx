@@ -3,69 +3,67 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { gql } from '../api/graphql.js';
 import {
   DELETE_ASSESSMENT,
-  LIST_ASSESSMENTS,
   LIST_DELETED_ASSESSMENTS,
-  LIST_MY_CLASSES,
   LOCK_ASSESSMENT,
-  UNLOCK_ASSESSMENT,
   RESTORE_ASSESSMENT,
   SOFT_DELETE_ASSESSMENT,
+  UNLOCK_ASSESSMENT,
 } from '../api/operations.js';
 import { weightRemaining } from '@gradebook/domain/assessment';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import { db } from '../offline/db.js';
+import { repository } from '../offline/repository.js';
+import { watchClass } from '../offline/syncEngine.js';
+import { useLive } from '../offline/useLive.js';
+import { useSync } from '../offline/useSync.js';
 
 const TERM_ID = import.meta.env.VITE_TERM_ID || 'term_2026_2';
 
 export default function Assessments() {
   const { actor } = useAuth();
+  const { online } = useSync();
   const [params, setParams] = useSearchParams();
   const classId = params.get('class') || '';
 
-  const [classes, setClasses] = useState([]);
-  const [assessments, setAssessments] = useState([]);
   const [deleted, setDeleted] = useState([]);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
 
   const isAdmin = actor.groups.includes('Admin');
   const canLock = isAdmin || actor.groups.includes('Head Teacher');
 
-  useEffect(() => {
-    gql(LIST_MY_CLASSES, { school_id: actor.schoolId })
-      .then((res) => {
-        setClasses(res.listMyClasses);
-        if (!classId && res.listMyClasses.length) {
-          setParams({ class: res.listMyClasses[0].class_id }, { replace: true });
-        }
-      })
-      .catch((e) => setError(e.message));
-  }, [actor.schoolId, classId, setParams]);
+  const classes = useLive(() => db().classes.toArray(), [], []);
+  const assessments = useLive(
+    () => (classId ? db().assessments.where('[class_id+term_id]').equals([classId, TERM_ID]).toArray() : []),
+    [classId],
+    null
+  );
 
-  const load = useCallback(() => {
+  useEffect(() => {
+    repository.loadClasses(actor.schoolId).catch((e) => setError(e.message));
+  }, [actor.schoolId]);
+
+  useEffect(() => {
+    if (!classId && classes.length) setParams({ class: classes[0].class_id }, { replace: true });
+  }, [classId, classes, setParams]);
+
+  const refresh = useCallback(async () => {
     if (!classId) return;
-    const vars = { school_id: actor.schoolId, class_id: classId, term_id: TERM_ID };
-    setLoading(true);
-    Promise.all([
-      gql(LIST_ASSESSMENTS, vars),
-      isAdmin ? gql(LIST_DELETED_ASSESSMENTS, vars) : Promise.resolve({ listDeletedAssessments: [] }),
-    ])
-      .then(([live, gone]) => {
-        setAssessments(live.listAssessmentsByClass.items);
-        setDeleted(gone.listDeletedAssessments);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [actor.schoolId, classId, isAdmin]);
+    await repository.loadAssessments(actor.schoolId, classId, TERM_ID);
+    if (isAdmin && online) {
+      const res = await gql(LIST_DELETED_ASSESSMENTS, { school_id: actor.schoolId, class_id: classId, term_id: TERM_ID });
+      setDeleted(res.listDeletedAssessments);
+    }
+  }, [actor.schoolId, classId, isAdmin, online]);
 
   useEffect(() => {
     setError(null);
-    load();
-  }, [load]);
+    refresh().catch((e) => setError(e.message));
+    return classId ? watchClass(classId, TERM_ID) : undefined;
+  }, [classId, refresh]);
 
-  // Every mutation reloads the list afterwards, success or failure: the server
-  // has moved _version and status, and on a Conflict someone else changed it.
+
   async function run(mutation, variables) {
     setError(null);
     try {
@@ -73,49 +71,42 @@ export default function Assessments() {
     } catch (e) {
       setError(e.message);
     }
-    load();
-  }
-
-  function lock(a) {
-    if (!window.confirm(`Lock "${a.title}"? Marks can no longer be edited.`)) return;
-    run(LOCK_ASSESSMENT, { school_id: actor.schoolId, assessment_id: a.assessment_id });
-  }
-
-  function unlock(a) {
-    const message =
-      `Unlock "${a.title}"? Marks and details can be changed again until results are published.`;
-    if (window.confirm(message)) {
-      run(UNLOCK_ASSESSMENT, { school_id: actor.schoolId, assessment_id: a.assessment_id });
-    }
+    await refresh().catch(() => {});
   }
 
   const ref = (a) => ({ input: { school_id: actor.schoolId, assessment_id: a.assessment_id, _version: a._version } });
+  const byId = (a) => ({ school_id: actor.schoolId, assessment_id: a.assessment_id });
 
-  function remove(a) {
-    const message = `Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to ${a.subject}.`;
-    if (window.confirm(message)) run(DELETE_ASSESSMENT, ref(a));
+  function lock(a) {
+    if (window.confirm(`Lock "${a.title}"? Marks can no longer be edited.`)) run(LOCK_ASSESSMENT, byId(a));
   }
-
+  function unlock(a) {
+    if (window.confirm(`Unlock "${a.title}"? Marks and details can be changed again until results are published.`)) {
+      run(UNLOCK_ASSESSMENT, byId(a));
+    }
+  }
+  function remove(a) {
+    if (window.confirm(`Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to ${a.subject}.`)) {
+      run(DELETE_ASSESSMENT, ref(a));
+    }
+  }
   function softRemove(a) {
     const message =
       `Delete "${a.title}" and its ${a.score_count} recorded mark${a.score_count === 1 ? '' : 's'}?\n\n` +
       `It can be restored from "Deleted assessments" below. Its ${a.weight}% goes back to ${a.subject} until then.`;
     if (window.confirm(message)) run(SOFT_DELETE_ASSESSMENT, ref(a));
   }
+  const restore = (a) => run(RESTORE_ASSESSMENT, byId(a));
 
-  function restore(a) {
-    run(RESTORE_ASSESSMENT, { school_id: actor.schoolId, assessment_id: a.assessment_id });
-  }
-
+  const list = assessments || [];
   const sorted = useMemo(
-    () => [...assessments].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
-    [assessments]
+    () => [...list].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
+    [list]
   );
-
   const budgets = useMemo(() => {
-    const subjects = [...new Set(assessments.map((a) => a.subject))];
-    return subjects.map((s) => ({ subject: s, remaining: weightRemaining(assessments, s) }));
-  }, [assessments]);
+    const subjects = [...new Set(list.map((a) => a.subject))];
+    return subjects.map((s) => ({ subject: s, remaining: weightRemaining(list, s) }));
+  }, [list]);
 
   const className = classes.find((c) => c.class_id === classId)?.name;
 
@@ -127,7 +118,7 @@ export default function Assessments() {
           aria-label="Class"
           value={classId}
           onChange={(v) => setParams({ class: v })}
-          options={classes.map((c) => ({ value: c.class_id, label: c.name }))}
+          options={[...classes].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.class_id, label: c.name }))}
           placeholder="Choose a class"
           style={{ width: 220 }}
         />
@@ -157,7 +148,7 @@ export default function Assessments() {
             </tr>
           </thead>
           <tbody>
-            {!loading && sorted.length === 0 && (
+            {assessments && sorted.length === 0 && (
               <tr className="empty">
                 <td colSpan={9}>
                   {className
@@ -175,29 +166,39 @@ export default function Assessments() {
                 <td>{a.max_score}</td>
                 <td>{a.score_count}</td>
                 <td>{a.due_date || '—'}</td>
-                <td><StatusPill status={a.status} /></td>
+                <td>
+                  {a._failed ? <span className="error">Not created: {a._failed}</span>
+                    : a._pending ? <span className="pill recording">Waiting to sync</span>
+                    : <StatusPill status={a.status} />}
+                </td>
                 <td className="actions">
-                  <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}`}>
-                    {a.status === 'LOCKED' ? 'View marks' : 'Enter marks'}
-                  </Link>
-
-                  {a.status === 'LOCKED' && isAdmin && (
-                      <button type="button" className="btn link" onClick={() => unlock(a)}>Unlock</button>
+                  {!a._failed && (
+                    <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}`}>
+                      {a.status === 'LOCKED' ? 'View marks' : 'Enter marks'}
+                    </Link>
                   )}
-                  {a.status !== 'LOCKED' && (
+                  {!a._pending && online && (
                     <>
-                      <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}`}>Edit</Link>
-                      {canLock && (
-                        <button type="button" className="btn link" onClick={() => lock(a)}>Lock</button>
+                      {a.status === 'LOCKED' && isAdmin && (
+                        <button type="button" className="btn link" onClick={() => unlock(a)}>Unlock</button>
                       )}
-                      {a.score_count === 0 && (
-                        <button type="button" className="btn link danger" onClick={() => remove(a)}>Delete</button>
-                      )}
-                      {a.score_count > 0 && isAdmin && (
-                        <button type="button" className="btn link danger" onClick={() => softRemove(a)}>Delete</button>
+                      {a.status !== 'LOCKED' && (
+                        <>
+                          <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}`}>Edit</Link>
+                          {canLock && (
+                            <button type="button" className="btn link" onClick={() => lock(a)}>Lock</button>
+                          )}
+                          {a.score_count === 0 && (
+                            <button type="button" className="btn link danger" onClick={() => remove(a)}>Delete</button>
+                          )}
+                          {a.score_count > 0 && isAdmin && (
+                            <button type="button" className="btn link danger" onClick={() => softRemove(a)}>Delete</button>
+                          )}
+                        </>
                       )}
                     </>
                   )}
+                  {!a._pending && !online && <span className="hint">Other changes need a connection</span>}
                 </td>
               </tr>
             ))}
@@ -205,7 +206,7 @@ export default function Assessments() {
         </table>
       </div>
 
-      {isAdmin && deleted.length > 0 && (
+      {isAdmin && online && deleted.length > 0 && (
         <>
           <h2>Deleted assessments</h2>
           <div className="table-wrap">

@@ -145,6 +145,27 @@ td.actions { display: flex; gap: var(--space-3); align-items: center; }
 .score-table .warn { color: var(--warning); font-size: var(--t-xs); }
 .notice { border: 1px solid var(--warning); color: var(--warning); border-radius: var(--radius); padding: var(--space-3); font-size: var(--t-sm); }
 
+
+/* ------------------------------------------------------------ offline sync */
+
+.syncbar { display: flex; align-items: center; gap: var(--space-3); font-size: var(--t-sm); color: var(--muted); }
+.syncbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.syncbar.offline { color: var(--warning); }
+.syncbar.offline .dot { background: var(--warning); }
+.btn.link.warn, .warn { color: var(--warning); }
+
+.backdrop { position: fixed; inset: 0; background: rgb(6 59 67 / 0.45); display: grid; place-items: center; z-index: 10; }
+.dialog { background: var(--surface); border-radius: var(--radius-lg); padding: var(--space-5); width: min(440px, 92vw);
+  display: flex; flex-direction: column; gap: var(--space-4); }
+.dialog p { margin: 0; }
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.choice { font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: var(--space-1); align-items: flex-start;
+  padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.choice:hover:not(:disabled) { background: var(--surface-alt); }
+.choice:disabled { opacity: 0.5; cursor: not-allowed; }
+.choice span { font-size: var(--t-xs); color: var(--muted); }
+.choice b { font-size: var(--t-lg); }
+
 @media (max-width: 880px) {
   .shell { grid-template-columns: 1fr; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--line-soft); }

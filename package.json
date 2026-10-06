@@ -22,5 +22,8 @@
     "dotenv": "^16.4.5",
     "graphql": "^16.9.0",
     "graphql-yoga": "^5.7.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
   }
 }

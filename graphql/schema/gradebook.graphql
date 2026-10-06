@@ -3,7 +3,8 @@ scalar AWSDate
 scalar AWSDateTime
 
 enum AssessmentStatus { UNRECORDED RECORDING RECORDED LOCKED }
-enum ItemOutcome { APPLIED REJECTED CONFLICT }
+enum ItemOutcome { APPLIED REJECTED REVIEW CONFLICT }
+enum ScoreStatus { ACTIVE CONFLICT_REVIEW }
 
 type Assessment {
   assessment_id: ID!
@@ -37,6 +38,11 @@ type Score {
   student_id: ID!
   raw_score: Float!
   normalized_score: Float
+  class_id: ID
+  status: ScoreStatus!            
+  conflict_with_score: Float      
+  conflict_with_user: ID
+  conflict_at: AWSDateTime
   entered_by: ID
   entered_at: AWSDateTime!
   updated_at: AWSDateTime!
@@ -85,8 +91,15 @@ type ItemResult {
 type SubmitScoresResult {
   accepted: Int!
   rejected: Int!
+  review: Int!
   conflicted: Int!
   results: [ItemResult!]!
+}
+
+type SyncPage_Score {
+  items: [Score!]!          
+  nextToken: String
+  startedAt: Float!         # pass back as lastSync next time
 }
 
 input CreateAssessmentInput {
@@ -131,6 +144,14 @@ input SubmitScoresInput {
   entries: [ScoreEntryInput!]!
 }
 
+input ResolveScoreConflictInput {
+  school_id: ID!
+  assessment_id: ID!
+  student_id: ID!
+  chosen_raw_score: Float    # null clears the mark
+  _version: Int!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   listAssessmentsByClass(
@@ -140,6 +161,7 @@ type Query {
   listMyClasses(school_id: ID!): [Class!]!
   getClassRoster(school_id: ID!, class_id: ID!): [Student!]!
   listScoresByAssessment(school_id: ID!, assessment_id: ID!): Connection_Score!
+  syncScores(school_id: ID!, class_id: ID!, lastSync: Float, limit: Int, nextToken: String): SyncPage_Score!
 }
 
 type Mutation {
@@ -151,4 +173,5 @@ type Mutation {
   softDeleteAssessment(input: DeleteAssessmentInput!): ID!     # sof delte by admin, cascades to marks
   restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores delted assessment and marks
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
+  resolveScoreConflict(input: ResolveScoreConflictInput!): Score   
 }

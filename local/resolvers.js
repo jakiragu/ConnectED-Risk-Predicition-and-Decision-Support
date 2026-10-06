@@ -9,6 +9,7 @@ export const RESOLVERS = {
     listMyClasses: assessmentService,
     getClassRoster: assessmentService,
     listScoresByAssessment: gradingService,
+    syncScores: gradingService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -19,5 +20,6 @@ export const RESOLVERS = {
     softDeleteAssessment: assessmentService,
     restoreAssessment: assessmentService,
     submitScores: gradingService,
+    resolveScoreConflict: gradingService,
   },
 };

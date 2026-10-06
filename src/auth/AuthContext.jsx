@@ -1,17 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { setTokenProvider } from '../api/graphql.js';
+import { openFor } from '../offline/db.js';
 
-/**
- * Session handling.
- *
- * Locally the token is minted by local/token.js and handed to the app through
- * the dev sign-in screen. On AWS this file is replaced by Amplify Auth's
- * fetchAuthSession, and everything below useAuth() stays as it is because the
- * actor shape is the same: sub, name, email, groups, schoolId.
- *
- * The claims decoded here are for display and routing only. The server reads
- * school and role from the signed token itself and never trusts these.
- */
 const AuthContext = createContext(null);
 
 const decode = (token) => {
@@ -44,6 +34,8 @@ export function AuthProvider({ children }) {
           }
         : null;
 
+    if (actor) openFor(actor.sub);
+    
     return {
       actor,
       token,

@@ -1,32 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { gql } from '../api/graphql.js';
-import { LIST_MY_CLASSES } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { db } from '../offline/db.js';
+import { repository } from '../offline/repository.js';
+import { useLive } from '../offline/useLive.js';
 
-/**
- * The classes this user may open.
- *
- * The server derives this from the same assignment data the authorization check
- * uses, so a class shown here can always be opened, and a class not shown here
- * would be refused if the user typed its id into the URL.
- */
 export default function Classes() {
   const { actor } = useAuth();
-  const [classes, setClasses] = useState([]);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const classes = useLive(() => db().classes.toArray(), [], null);
 
   useEffect(() => {
-    let live = true;
-    gql(LIST_MY_CLASSES, { school_id: actor.schoolId })
-      .then((res) => live && setClasses(res.listMyClasses))
-      .catch((e) => live && setError(e.message))
-      .finally(() => live && setLoading(false));
-    return () => {
-      live = false;
-    };
+    repository.loadClasses(actor.schoolId).catch((e) => setError(e.message));
   }, [actor.schoolId]);
+
+  const sorted = (classes || []).slice().sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <>
@@ -44,14 +32,15 @@ export default function Classes() {
             </tr>
           </thead>
           <tbody>
-            {!loading && classes.length === 0 && (
+            {classes && sorted.length === 0 && (
               <tr className="empty">
                 <td colSpan={5}>
-                  No classes are assigned to you yet. Ask your head teacher to add you to a class.
+                  No classes on this device yet. Connect once to download them, or ask your head teacher to
+                  add you to a class.
                 </td>
               </tr>
             )}
-            {classes.map((c) => (
+            {sorted.map((c) => (
               <tr key={c.class_id}>
                 <td>{c.grade}</td>
                 <td>{c.stream}</td>
