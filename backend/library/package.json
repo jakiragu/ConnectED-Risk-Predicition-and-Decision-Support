@@ -1,0 +1,13 @@
+{
+  "name": "@gradebook/domain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure gradebook business rules, shared by the Lambda services and the React client.",
+  "exports": {
+    "./assessment": "./assessment.js",
+    "./ids": "./ids.js",
+    "./score": "./score.js",
+    "./conflict": "./conflict.js"
+  }
+}
