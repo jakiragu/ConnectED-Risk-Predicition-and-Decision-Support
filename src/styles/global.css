@@ -172,3 +172,25 @@ td.actions { display: flex; gap: var(--space-3); align-items: center; }
   .nav { flex-direction: row; overflow-x: auto; }
   .nav a { border: none; white-space: nowrap; }
 }
+
+/* ---- results, checkpoint weights ---- */
+.segmented { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.seg {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); color: var(--ink); font: inherit; cursor: pointer;
+}
+.seg.active { background: var(--ink); color: var(--surface); }
+.seg.active .pill { background: var(--surface); }
+.issues { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+.issues h3 { margin: 0; font-size: var(--t-base); color: var(--ink); }
+.issue { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); font-size: var(--t-sm); }
+.issue.blocking { background: #fdeaea; color: var(--danger); }
+.issue.warning { background: #fdf3e2; color: var(--warning); }
+.budget.warn, .hint.warn { color: var(--warning); }
+.weights-card { margin-bottom: var(--space-4); display: grid; gap: var(--space-3); }
+.weights-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.weights-head h2 { margin: 0; }
+.weights-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.weight-input { display: inline-flex; align-items: center; gap: var(--space-2); }
+.weight-input input { width: 72px; }

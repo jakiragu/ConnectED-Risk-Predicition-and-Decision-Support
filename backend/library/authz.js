@@ -47,6 +47,20 @@ export function assertCanLock(actor) {
   }
 }
 
+export function assertCanPublish(actor) {
+  if (!hasRole(actor, ROLE.ADMIN, ROLE.HEAD_TEACHER)) {
+    throw forbidden('Only a head teacher or administrator can calculate or publish results');
+  }
+}
+
+export const canReviewResults = (actor) => hasRole(actor, ROLE.ADMIN, ROLE.HEAD_TEACHER);
+
+export function assertGradebookRole(actor) {
+  if (!hasRole(actor, ROLE.ADMIN, ROLE.HEAD_TEACHER, ROLE.TEACHER)) {
+    throw forbidden('Your role has no gradebook access');
+  }
+}
+
 export function assertAdmin(actor) {
   if (!hasRole(actor, ROLE.ADMIN)) {
     throw forbidden('Only an administrator can do this');

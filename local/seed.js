@@ -6,14 +6,6 @@ import { ensureTable } from './create-table.js';
 import { issueToken } from './token.js';
 import { pathToFileURL } from 'node:url';
 
-/**
- * Seeds Saint Innocent High School from the prototype. Deterministic: the same
- * ids every run, so screenshots, tests and demo scripts stay valid.
- *
- * This writes through the same key helpers the services use, so the local data
- * is byte-for-byte what a real DynamoDB table would hold. Migrating it after
- * the lift is a scan-and-batch-write, not a transformation.
- */
 const SCHOOL = 'sch_saint_innocent';
 const TERM = 'term_2026_2';
 
@@ -36,31 +28,39 @@ items.push({
   school_id: SCHOOL, name: 'Saint Innocent High School', country: 'KE', region: 'Nairobi',
 });
 
-// GradeRule, straight off the School customization screen of the prototype.
-items.push({
-  PK: pk(SCHOOL), SK: sk.gradeRule(TERM), entity: 'GradeRule',
-  grade_rule_id: `gr_${TERM}`, school_id: SCHOOL, term_id: TERM,
-  pass_mark: 50, at_risk_threshold: 50,
-  missing_score_policy: 'EXCLUDE',
-  bands: [
-    { grade: 'A',  min_score: 91, max_score: 100 },
-    { grade: 'A-', min_score: 81, max_score: 90 },
-    { grade: 'B',  min_score: 71, max_score: 80 },
-    { grade: 'B-', min_score: 61, max_score: 70 },
-    { grade: 'C',  min_score: 51, max_score: 60 },
-    { grade: 'C-', min_score: 41, max_score: 50 },
-    { grade: 'D',  min_score: 31, max_score: 40 },
-    { grade: 'D-', min_score: 21, max_score: 30 },
-    { grade: 'E',  min_score: 0,  max_score: 20 },
-  ],
-  updated_at: now,
-});
-
-items.push({
-  PK: pk(SCHOOL), SK: `TERM#${TERM}`, entity: 'Term',
-  term_id: TERM, school_id: SCHOOL, name: 'Term 2, 2026',
-  start_date: '2026-05-04', end_date: '2026-08-07', status: 'CURRENT',
-});
+// Terms 1-3 of 2026, each with its GradeRule straight off the School
+// customization screen of the prototype. Checkpoint weights are left unset:
+// teachers set them per term before End of term results can be published.
+const BANDS = [
+  { grade: 'A',  min_score: 91, max_score: 100 },
+  { grade: 'A-', min_score: 81, max_score: 90 },
+  { grade: 'B',  min_score: 71, max_score: 80 },
+  { grade: 'B-', min_score: 61, max_score: 70 },
+  { grade: 'C',  min_score: 51, max_score: 60 },
+  { grade: 'C-', min_score: 41, max_score: 50 },
+  { grade: 'D',  min_score: 31, max_score: 40 },
+  { grade: 'D-', min_score: 21, max_score: 30 },
+  { grade: 'E',  min_score: 0,  max_score: 20 },
+];
+const TERMS = [
+  { term_id: 'term_2026_1', name: 'Term 1, 2026', start_date: '2026-01-05', end_date: '2026-04-03', status: 'PAST' },
+  { term_id: 'term_2026_2', name: 'Term 2, 2026', start_date: '2026-05-04', end_date: '2026-08-07', status: 'CURRENT' },
+  { term_id: 'term_2026_3', name: 'Term 3, 2026', start_date: '2026-08-31', end_date: '2026-10-30', status: 'UPCOMING' },
+];
+for (const t of TERMS) {
+  items.push({
+    PK: pk(SCHOOL), SK: sk.gradeRule(t.term_id), entity: 'GradeRule',
+    grade_rule_id: `gr_${t.term_id}`, school_id: SCHOOL, term_id: t.term_id,
+    pass_mark: 50, at_risk_threshold: 50,
+    missing_score_policy: 'EXCLUDE',
+    bands: BANDS,
+    checkpoint_weights_version: 0,
+    updated_at: now,
+  });
+  items.push({
+    PK: pk(SCHOOL), SK: sk.term(t.term_id), entity: 'Term', school_id: SCHOOL, ...t,
+  });
+}
 
 // Classes: the prototype shows form + stream + subject, so a "class" here is a
 // teaching group, which is what Assessment.class_id points at.
@@ -77,13 +77,23 @@ for (const form of [2, 4]) {
   }
 }
 
+// A five-student class for checking results and report cards by hand. Kept
+// out of `classes` so the generated rosters above stay identical.
+const TEST_CLASS = { classId: 'cls_test', name: 'Form 4 Test' };
+items.push({
+  PK: pk(SCHOOL), SK: sk.klass(TEST_CLASS.classId), entity: 'Class',
+  class_id: TEST_CLASS.classId, school_id: SCHOOL, name: TEST_CLASS.name,
+  grade: 'Form 4', stream: 'Test', year: 2026, status: 'CURRENT',
+});
+const allClassIds = [...classes.map((c) => c.classId), TEST_CLASS.classId];
+
 // Teachers. Jane Doe teaches Kiswahili to four groups; Zama Nile is the head
 // teacher and John Man is an administrator.
 const jane = 'usr_jane_doe';
 const zama = 'usr_zama_nile';
 const admin = 'usr_john_man';
 
-const janeClasses = ['cls_f4south', 'cls_f4east', 'cls_f2east', 'cls_f2west'];
+const janeClasses = ['cls_f4south', 'cls_f4east', 'cls_f2east', 'cls_f2west', TEST_CLASS.classId];
 
 items.push({
   PK: pk(SCHOOL), SK: sk.teacher(jane), entity: 'Teacher',
@@ -95,13 +105,13 @@ items.push({
   PK: pk(SCHOOL), SK: sk.teacher(zama), entity: 'Teacher',
   teacher_id: zama, school_id: SCHOOL, first_name: 'Zama', last_name: 'Nile',
   email: 'zama.nile@saintinnocent.ac.ke', subjects: ['CRE'],
-  class_ids: classes.map((c) => c.classId), groups: ['Head Teacher'], status: 'ACTIVE',
+  class_ids: allClassIds, groups: ['Head Teacher'], status: 'ACTIVE',
 });
 items.push({
   PK: pk(SCHOOL), SK: sk.teacher(admin), entity: 'Teacher',
   teacher_id: admin, school_id: SCHOOL, first_name: 'John', last_name: 'Man',
   email: 'john.man@saintinnocent.ac.ke', subjects: [],
-  class_ids: classes.map((c) => c.classId), groups: ['Admin'], status: 'ACTIVE',
+  class_ids: allClassIds, groups: ['Admin'], status: 'ACTIVE',
 });
 
 // Students. The three named in the prototype keep their admission numbers.
@@ -134,6 +144,15 @@ for (const n of named) {
     class_id: n.classId,
   });
 }
+// The test class: fixed names and admission numbers 19001-19005.
+const TEST_STUDENTS = [
+  ['Achieng', 'Otieno'], ['Brian', 'Kamau'], ['Cynthia', 'Wanjiku'], ['David', 'Mutua'], ['Esther', 'Chebet'],
+];
+TEST_STUDENTS.forEach(([first, last], i) => {
+  const no = String(19001 + i);
+  students.push({ student_id: `stu_${no}`, admission_no: no, first_name: first, last_name: last, class_id: TEST_CLASS.classId });
+});
+
 for (const s of students) {
   items.push({
     PK: pk(SCHOOL), SK: sk.student(s.student_id), entity: 'Student',
@@ -160,7 +179,8 @@ async function run() {
   console.log(`Seeded ${items.length} items into ${TABLE}`);
   console.log(`  school  ${SCHOOL}`);
   console.log(`  term    ${TERM}`);
-  console.log(`  classes ${classes.length}, students ${students.length}`);
+  console.log(`  classes ${classes.length + 1}, students ${students.length}`);
+  console.log(`  test    ${TEST_CLASS.name} (${TEST_CLASS.classId}), ${TEST_STUDENTS.length} students, assigned to Jane`);
   console.log('\nSign-in passwords are not used locally. Development tokens:\n');
   for (const [role, t] of Object.entries(tokens)) console.log(`${role}:\n${t}\n`);
 }

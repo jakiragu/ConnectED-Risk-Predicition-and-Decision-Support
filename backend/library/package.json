@@ -8,6 +8,7 @@
     "./assessment": "./assessment.js",
     "./ids": "./ids.js",
     "./score": "./score.js",
-    "./conflict": "./conflict.js"
+    "./conflict": "./conflict.js",
+    "./results": "./results.js"
   }
 }

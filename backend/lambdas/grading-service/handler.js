@@ -1,5 +1,5 @@
 import { identityOf, assertTenant, assertClassAccess } from '../../library/authz.js';
-import { validateEntry, MAX_BATCH } from '../../library/score.js';
+import { validateEntry, MAX_BATCH, sameMark } from '../../library/score.js';
 import { resolveScoreConflict, RESOLUTION, CONFLICT_REVIEW } from '../../library/conflict.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import * as scores from '../../library/scoreRepo.js';
@@ -36,14 +36,15 @@ async function loadOpenAssessment(actor, schoolId, assessmentId) {
 
 async function assertWritable(schoolId, assessment) {
   if (assessment.status === 'LOCKED') throw locked('This assessment is locked');
-  if (await assessments.termLocked(schoolId, assessment.term_id)) throw locked(TERM_LOCKED);
+  if (await assessments.termLocked(schoolId, assessment.term_id, assessment.class_id)) throw locked(TERM_LOCKED);
 }
 
-/** The op that makes the server hold `value` (null = no mark), given what it holds now. */
 function opFor(sid, before, check) {
   if (check.clear) return before ? { kind: 'clear', student_id: sid, before } : null;
-  return { kind: before ? 'update' : 'create', student_id: sid, before, value: check.value, normalized: check.normalized };
+  return { kind: before ? 'update' : 'create', student_id: sid, before,
+    value: check.value, normalized: check.normalized, mark_status: check.mark_status };
 }
+const intended = (check) => (check.clear ? { raw_score: null } : { raw_score: check.value, mark_status: check.mark_status });
 
 async function submitScores(actor, input) {
   assertTenant(actor, input.school_id);
@@ -78,23 +79,23 @@ async function submitScores(actor, input) {
     }
 
     const sent = entry._version ?? null;
-    const local = check.clear ? null : check.value;
+    const local = intended(check);
     const current = (before?._version ?? null) === sent && before?.status !== CONFLICT_REVIEW;
 
     if (current) {
       const op = opFor(sid, before, check);
-      if (op && !(before && op.kind === 'update' && before.raw_score === local)) ops.push(op);
+      if (op && !(before && op.kind === 'update' && sameMark(before, local))) ops.push(op);
       else done(sid, 'APPLIED', before);
       continue;
     }
 
-    const decision = resolveScoreConflict({ raw_score: local }, before, actor);
+    const decision = resolveScoreConflict(local, before, actor);
     if (decision.resolution === RESOLUTION.DISCARD) {
       done(sid, 'APPLIED', before, decision.reason);
     } else if (decision.resolution === RESOLUTION.HOLD) {
       done(sid, 'CONFLICT', before, decision.reason);
     } else if (decision.resolution === RESOLUTION.REVIEW) {
-      ops.push({ kind: 'review', student_id: sid, before, proposed: local, reason: decision.reason });
+      ops.push({ kind: 'review', student_id: sid, before, proposed: local.raw_score, proposed_mark: local.mark_status ?? null, reason: decision.reason });
     } else {
       const op = opFor(sid, before, check);
       if (op) ops.push({ ...op, reason: decision.reason, audit: before?.status === CONFLICT_REVIEW ? 'CONFLICT_RESOLVED' : undefined });
@@ -141,8 +142,8 @@ async function resolveConflict(actor, input) {
 
   const roster = await platform.roster(input.school_id, assessment.class_id);
   const check = validateEntry(
-    { student_id: input.student_id, raw_score: input.chosen_raw_score },
-    { assessment, roster: new Set(roster.map((s) => s.student_id)) }
+    { student_id: input.student_id, raw_score: input.chosen_raw_score, mark_status: input.chosen_mark_status ?? undefined },
+    { assessment, roster: new Set(roster.map((student) => student.student_id)) }
   );
   if (!check.ok) throw validation(check.reason, 'chosen_raw_score');
 

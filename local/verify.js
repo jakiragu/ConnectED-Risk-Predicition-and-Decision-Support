@@ -38,12 +38,14 @@ async function run() {
   // 2. Everything the seed wrote is still in the school's drawer. Rows the app
   //    writes (assessments, marks, their audit trail, term locks) are excluded.
   const seededOnly = {
-    FilterExpression: 'NOT (#e IN (:a, :s, :sa, :tl))',
+    FilterExpression: 'NOT (#e IN (:a, :s, :sa, :tl, :ps, :rs, :tr, :rc))',
     ExpressionAttributeNames: { '#e': 'entity' },
-    ExpressionAttributeValues: { ':a': 'Assessment', ':s': 'Score', ':sa': 'ScoreAudit', ':tl': 'TermLock' },
+    ExpressionAttributeValues: {
+      ':a': 'Assessment', ':s': 'Score', ':sa': 'ScoreAudit', ':tl': 'TermLock',
+      ':ps': 'PaperSlot', ':rs': 'ResultSet', ':tr': 'TermResult', ':rc': 'ReportCard',},
   };
   const all = await ddb.send(new ScanCommand({ TableName: TABLE, Select: 'COUNT', ...seededOnly }));
-  check('seeded items intact', all.Count, 349);
+  check('seeded items intact', all.Count, 353);
 
   // 3. "All students at this school" - one lookup by folder prefix.
   const allStudents = await ddb.send(new QueryCommand({
@@ -95,6 +97,7 @@ async function run() {
     TableName: TABLE, Key: { PK: pk(SCHOOL), SK: sk.gradeRule(TERM) },
   }));
   check('pass mark is 50', rule.Item?.pass_mark, 50);
+  check('checkpoint weights start unset', rule.Item?.checkpoint_weights, undefined);
   check('grading scale has 9 bands', rule.Item?.bands?.length, 9);
 
   // 8. GSI1 is the class+term index, and only assessments belong in it.
@@ -106,6 +109,15 @@ async function run() {
   }));
   check('GSI1 holds only assessments', gsi1.Count, 0);
 
+    // 8b. Three terms, each with its own grading rule.
+  const terms = await ddb.send(new QueryCommand({
+    TableName: TABLE,
+    KeyConditionExpression: 'PK = :p AND begins_with(SK, :s)',
+    ExpressionAttributeValues: { ':p': pk(SCHOOL), ':s': 'TERM#' },
+    Select: 'COUNT',
+  }));
+  check('terms 1-3 seeded', terms.Count, 3);
+  
   // 9. Badges work, and a tampered badge is rejected.
   const token = issueToken({
     sub: 'usr_jane_doe', email: 'jane.doe@saintinnocent.ac.ke',
