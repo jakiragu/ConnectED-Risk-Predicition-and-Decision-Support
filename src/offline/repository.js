@@ -6,6 +6,7 @@ import {
   GET_CLASS_ROSTER,
   LIST_MY_CLASSES,
   RESOLVE_SCORE_CONFLICT,
+  LIST_TERMS,
 } from '../api/operations.js';
 import * as outbox from './outbox.js';
 import { isOnline, queueAssessment, queueScore, refreshAssessments, refreshScores } from './syncEngine.js';
@@ -37,6 +38,15 @@ export const repository = {
       await db().transaction('rw', db().students, async () => {
         await db().students.where('class_id').equals(classId).delete();
         await db().students.bulkPut(getClassRoster);
+      });
+    }),
+
+  loadTerms: (schoolId) =>
+    quietly(async () => {
+      const { listTerms } = await gql(LIST_TERMS, { school_id: schoolId });
+      await db().transaction('rw', db().terms, async () => {
+        await db().terms.clear();
+        await db().terms.bulkPut(listTerms);
       });
     }),
 

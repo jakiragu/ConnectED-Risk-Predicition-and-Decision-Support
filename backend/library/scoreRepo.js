@@ -4,6 +4,7 @@ import { TABLE, pk, sk, gsi2, gsi3 } from './keys.js';
 import { ulid } from './ids.js';
 import { termOpen } from './assessmentRepo.js';
 import { CONFLICT_REVIEW } from './conflict.js';
+import { MARK } from './score.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -15,7 +16,9 @@ const SYNC_OVERLAP_MS = 5000;
 const withDefaults = (row) =>
   row && {
     status: 'ACTIVE',
+    mark_status: MARK.SCORED,
     conflict_with_score: null,
+    conflict_with_mark_status: null,
     conflict_with_user: null,
     conflict_at: null,
     ...row,
@@ -82,9 +85,10 @@ function buildItem(schoolId, assessment, op, actor) {
     class_id: assessment.class_id,
     term_id: assessment.term_id,
     raw_score: op.value,
-    normalized_score: op.normalized,
+    mark_status: op.mark_status || MARK.SCORED,
     status: 'ACTIVE',
     conflict_with_score: null,
+    conflict_with_mark_status: null,
     conflict_with_user: null,
     conflict_at: null,
     entered_by: actor.sub,
@@ -113,6 +117,7 @@ function scoreWrite(schoolId, assessment, op, actor) {
       ...op.before,
       status: CONFLICT_REVIEW,
       conflict_with_score: op.proposed,
+      conflict_with_mark_status: op.proposed_mark ?? null,
       conflict_with_user: actor.sub,
       conflict_at: ts,
       updated_at: ts,
@@ -124,12 +129,12 @@ function scoreWrite(schoolId, assessment, op, actor) {
         TableName: TABLE,
         Key,
         UpdateExpression:
-          'SET #st = :rev, conflict_with_score = :c, conflict_with_user = :u, conflict_at = :ts, ' +
+          'SET #st = :rev, conflict_with_score = :c, conflict_with_mark_status = :cm, conflict_with_user = :u, conflict_at = :ts, ' +
           'updated_at = :ts, #lc = :lc, GSI3SK = :g3, #v = #v + :one',
         ConditionExpression: '#v = :exp',
         ExpressionAttributeNames: { '#v': '_version', '#st': 'status', '#lc': '_lastChangedAt' },
         ExpressionAttributeValues: {
-          ':exp': op.before._version, ':rev': CONFLICT_REVIEW, ':c': op.proposed, ':u': actor.sub,
+          ':exp': op.before._version, ':rev': CONFLICT_REVIEW, ':c': op.proposed, ':cm': op.proposed_mark ?? null, ':u': actor.sub,
           ':ts': ts, ':lc': now, ':g3': gsi3.sk(now), ':one': 1,
         },
       },
@@ -145,6 +150,7 @@ function scoreWrite(schoolId, assessment, op, actor) {
 
 function auditWrite(schoolId, assessment, op, actor) {
   const to = op.kind === 'clear' ? null : op.kind === 'review' ? op.proposed : op.value;
+  const toMark = op.kind === 'clear' ? null : op.kind === 'review' ? op.proposed_mark ?? null : op.mark_status || MARK.SCORED;
   return {
     Put: {
       TableName: TABLE,
@@ -156,8 +162,10 @@ function auditWrite(schoolId, assessment, op, actor) {
         assessment_id: assessment.assessment_id,
         student_id: op.student_id,
         action: op.audit || (op.kind === 'review' ? 'CONFLICT_RAISED' : op.kind.toUpperCase()),
-        from: op.before?.raw_score ?? null,
+        from: op.before?.raw_score ?? null, 
+        from_mark_status: op.before ? op.before.mark_status || MARK.SCORED : null,
         to,
+        to_mark_status: toMark,
         by: actor.sub,
         previous_author: op.before?.entered_by ?? null,
         reason: op.reason ?? null,
@@ -184,7 +192,7 @@ async function writeChunk(schoolId, assessment, ops, actor) {
         },
       },
     },
-    termOpen(schoolId, assessment.term_id),
+    termOpen(schoolId, assessment.term_id, assessment.class_id),
   ];
   for (const op of ops) {
     items.push(scoreWrite(schoolId, assessment, op, actor), auditWrite(schoolId, assessment, op, actor));

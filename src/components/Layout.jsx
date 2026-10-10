@@ -8,6 +8,7 @@ import SyncBar from './SyncBar.jsx';
 const NAV = [
   { to: '/classes', label: 'Classes' },
   { to: '/assessments', label: 'Assessments' },
+  { to: '/results', label: 'Results' },
 ];
 
 export default function Layout() {

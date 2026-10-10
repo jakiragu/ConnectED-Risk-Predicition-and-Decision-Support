@@ -66,6 +66,18 @@ export async function listByClass(schoolId, classId, termId, opts) {
   return { ...page, items: page.items.filter((i) => !i._deleted) };
 }
 
+/** All live assessments for a class and term, across every GSI page. */
+export async function listAllLive(schoolId, classId, termId) {
+  const items = [];
+  let nextToken;
+  do {
+    const page = await listByClass(schoolId, classId, termId, { limit: 100, nextToken });
+    items.push(...page.items);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return items;
+}
+
 /** Soft-deleted assessments for a class this term, for the restore list. */
 export async function listDeletedByClass(schoolId, classId, termId) {
   const out = [];

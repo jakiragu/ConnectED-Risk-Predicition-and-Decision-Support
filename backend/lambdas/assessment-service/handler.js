@@ -12,6 +12,7 @@ import {
   deletionBlocker,
   recordingStatus,
   maxScoreFrozen,
+  weightUsed,
   TOTAL_WEIGHT,
 } from '../../library/assessment.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
@@ -50,6 +51,8 @@ export async function handler(event) {
       return listMyClasses(actor, args);
     case 'getClassRoster':
       return getClassRoster(actor, args);
+    case 'listTerms':
+      return listTerms(actor, args);
     default:
       throw notFound(`No handler for ${event.info.fieldName}`);
   }
@@ -58,9 +61,14 @@ export async function handler(event) {
 const STALE = 'Someone else changed this assessment. Reload and try again.';
 const TERM_LOCKED = 'Results for this term are published, so assessments are locked';
 const UNLOCK_TERM_LOCKED = 'Results for this term are published, so this assessment can no longer be unlocked';
+const UNLOCK_PUBLISHED =
+  'Published results include this assessment, so it cannot be unlocked. Correcting published results is not available yet.';
+const isPublished = (a) => Boolean(a.published_in && [...a.published_in].length);
+const paperTaken = (a) => `${a.subject} ${a.assessment_type} already has a paper ${a.paper_no}`;
 
 const decorate = (a, rosterSize) => ({
   ...a,
+  published_in: a.published_in ? [...a.published_in].sort() : [],
   score_count: a.score_count || 0,
   status: recordingStatus(a, rosterSize),
 });
@@ -77,14 +85,16 @@ async function requireClassAccess(actor, classId) {
 async function createAssessment(actor, input) {
   assertTenant(actor, input.school_id);
   await requireClassAccess(actor, input.class_id);
-  if (await assessments.termLocked(input.school_id, input.term_id)) throw locked(TERM_LOCKED);
+  if (await assessments.termLocked(input.school_id, input.term_id, input.class_id)) throw locked(TERM_LOCKED);
 
   const candidate = { ...input, assessment_id: input.assessment_id || ulid() };
-  const { items: siblings } = await assessments.listByClass(input.school_id, input.class_id, input.term_id, { limit: 100 });
-  const errors = validateAssessment(candidate, { siblings: siblings.filter((s) => s.subject === candidate.subject) });
+  const siblings = await assessments.listAllLive(input.school_id, input.class_id, input.term_id);
+  const errors = validateAssessment(candidate, { siblings });
   if (errors.length) throw validation(errors[0].message, errors[0].field);
 
-  const { item, created } = await assessments.create(input.school_id, candidate, actor);
+  const { item, created, problem } = await assessments.create(input.school_id, candidate, actor);
+  if (problem === 'TERM_LOCKED') throw locked(TERM_LOCKED);
+  if (problem === 'PAPER_TAKEN') throw validation(paperTaken(candidate), 'paper_no');
   if (!created && item && (item.class_id !== candidate.class_id || item._deleted)) {
     throw conflict('That assessment id is already in use');
   }
@@ -98,12 +108,12 @@ async function updateAssessment(actor, input) {
   if (!existing || existing._deleted) throw notFound('Assessment not found');
   await requireClassAccess(actor, existing.class_id);
   if (existing.status === 'LOCKED') throw locked('This assessment is locked');
-  if (await assessments.termLocked(input.school_id, existing.term_id)) throw locked(TERM_LOCKED);
+  if (await assessments.termLocked(input.school_id, existing.term_id, existing.class_id)) throw locked(TERM_LOCKED);
 
-  const { items: siblings } = await assessments.listByClass(input.school_id, existing.class_id, existing.term_id, { limit: 100 });
-  const merged = { ...existing, ...stripEmpty(input) };
+  const siblings = await assessments.listAllLive(input.school_id, existing.class_id, existing.term_id);
+  const merged = { ...existing, ...stripEmpty(input), subject: existing.subject };
   const errors = validateAssessment(merged, {
-    siblings: siblings.filter((s) => s.subject === merged.subject),
+    siblings,
     original: existing,
     scoreCount: existing.score_count || 0,
   });
@@ -113,10 +123,11 @@ async function updateAssessment(actor, input) {
   try {
     const updated = await assessments.update(
       input.school_id,
-      input.assessment_id,
+      existing,
       {
         title: input.title,
         assessment_type: input.assessment_type,
+        paper_no: input.paper_no,
         weight: input.weight,
         max_score: input.max_score,
         due_date: input.due_date,
@@ -127,6 +138,7 @@ async function updateAssessment(actor, input) {
     );
     return decorateOne(updated);
   } catch (e) {
+    if (e.name === assessments.PAPER_TAKEN) throw validation(paperTaken(merged), 'paper_no');
     if (e.name !== 'ConditionalCheckFailedException') throw e;
     const fresh = await assessments.get(input.school_id, input.assessment_id);
     if (!fresh || fresh._deleted) throw notFound('Assessment not found');
@@ -153,16 +165,18 @@ async function unlockAssessment(actor, { school_id, assessment_id }) {
   const existing = await assessments.get(school_id, assessment_id);
   if (!existing || existing._deleted) throw notFound('Assessment not found');
   if (existing.status !== 'LOCKED') return decorateOne(existing);
-  if (await assessments.termLocked(school_id, existing.term_id)) throw locked(UNLOCK_TERM_LOCKED);
+  if (isPublished(existing)) throw locked(UNLOCK_PUBLISHED);
+  if (await assessments.termLocked(school_id, existing.term_id, existing.class_id)) throw locked(UNLOCK_TERM_LOCKED);
 
   try {
     await assessments.unlock(school_id, existing, actor);
   } catch (e) {
     if (e.name !== 'TransactionCanceledException') throw e;
     if (assessments.cancelledAt(e, 1)) throw locked(UNLOCK_TERM_LOCKED);
-    // The assessment item failed: someone unlocked or deleted it in the meantime.
+    // The assessment item failed: someone unlocked, deleted or published it in the meantime.
     const fresh = await assessments.get(school_id, assessment_id);
     if (!fresh || fresh._deleted) throw notFound('Assessment not found');
+    if (isPublished(fresh)) throw locked(UNLOCK_PUBLISHED);
   }
   return decorateOne(await assessments.get(school_id, assessment_id));
 }
@@ -175,12 +189,12 @@ async function deleteAssessment(actor, input) {
   await requireClassAccess(actor, existing.class_id);
   if (existing._deleted) return input.assessment_id;
 
-  const termIsLocked = await assessments.termLocked(input.school_id, existing.term_id);
+  const termIsLocked = await assessments.termLocked(input.school_id, existing.term_id, existing.class_id);
   const blocker = deletionBlocker(existing, { termLocked: termIsLocked });
   if (blocker) throw locked(blocker);
 
   try {
-    await assessments.hardDelete(input.school_id, input.assessment_id, input._version);
+    await assessments.hardDelete(input.school_id, existing, input._version);
     return input.assessment_id;
   } catch (e) {
     if (e.name !== 'ConditionalCheckFailedException') throw e;
@@ -224,18 +238,20 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
   const existing = await assessments.get(school_id, assessment_id);
   if (!existing) throw notFound('Assessment not found');
   if (!existing._deleted) return decorateOne(existing);
-  if (await assessments.termLocked(school_id, existing.term_id)) throw locked(TERM_LOCKED);
+  if (await assessments.termLocked(school_id, existing.term_id, existing.class_id)) throw locked(TERM_LOCKED);
 
-  const { items: siblings } = await assessments.listByClass(school_id, existing.class_id, existing.term_id, { limit: 100 });
-  const used = siblings
-    .filter((s) => s.subject === existing.subject && s.assessment_id !== assessment_id)
-    .reduce((total, s) => total + s.weight, 0);
+  const siblings = await assessments.listAllLive(school_id, existing.class_id, existing.term_id);
+  const used = weightUsed(siblings, existing.subject, existing.assessment_type, assessment_id);
   if (used + existing.weight > TOTAL_WEIGHT) {
     throw validation(
-      `Restoring needs ${existing.weight}% of ${existing.subject}, but only ${TOTAL_WEIGHT - used}% is unassigned. ` +
-        'Reduce another assessment first.',
+      `Restoring needs ${existing.weight}% of the ${existing.subject} ${existing.assessment_type} exam, ` +
+        `but only ${TOTAL_WEIGHT - used}% is unassigned. Reduce another paper first.`,
       'weight'
     );
+  }
+  if (existing.paper_no && siblings.some((s) => s.subject === existing.subject
+    && s.assessment_type === existing.assessment_type && s.paper_no === existing.paper_no)) {
+    throw validation(`${paperTaken(existing)}. Change that paper's number first.`, 'paper_no');
   }
 
   await scores.setDeletedAll(school_id, assessment_id, false, actor);
@@ -244,6 +260,7 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
   } catch (e) {
     if (e.name !== 'TransactionCanceledException') throw e;
     if (assessments.cancelledAt(e, 1)) throw locked(TERM_LOCKED);
+    if (assessments.cancelledAt(e, 2)) throw validation(paperTaken(existing), 'paper_no');
     const fresh = await assessments.get(school_id, assessment_id);
     if (!fresh || fresh._deleted) throw conflict(STALE);
     return decorateOne(fresh);
@@ -285,6 +302,11 @@ async function listMyClasses(actor, { school_id }) {
   if (hasRole(actor, ROLE.ADMIN, ROLE.HEAD_TEACHER)) return all;
   const ids = await platform.assignments(actor.schoolId, actor.sub);
   return all.filter((c) => ids.includes(c.class_id));
+}
+
+async function listTerms(actor, { school_id }) {
+  assertTenant(actor, school_id);
+  return platform.listTerms(school_id);
 }
 
 async function getClassRoster(actor, { school_id, class_id }) {

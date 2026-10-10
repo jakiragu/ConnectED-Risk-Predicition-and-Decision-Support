@@ -1,0 +1,72 @@
+{
+  "Comment": "Report cards for one published class checkpoint. Input: {school_id, class_id, term_id, checkpoint, calculation_id, student_ids}. ${ReportCardWorkerArn} is substituted at deployment.",
+  "StartAt": "GenerateReportCards",
+  "States": {
+    "GenerateReportCards": {
+      "Type": "Map",
+      "ItemsPath": "$.student_ids",
+      "MaxConcurrency": 10,
+      "Parameters": {
+        "action": "generate",
+        "school_id.$": "$.school_id",
+        "class_id.$": "$.class_id",
+        "term_id.$": "$.term_id",
+        "checkpoint.$": "$.checkpoint",
+        "calculation_id.$": "$.calculation_id",
+        "student_id.$": "$$.Map.Item.Value"
+      },
+      "Iterator": {
+        "StartAt": "GenerateOne",
+        "States": {
+          "GenerateOne": {
+            "Type": "Task",
+            "Resource": "${ReportCardWorkerArn}",
+            "Retry": [
+              { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        { "ErrorEquals": ["States.ALL"], "ResultPath": "$.failure", "Next": "MarkFailed" }
+      ],
+      "Next": "MarkComplete"
+    },
+    "MarkComplete": {
+      "Type": "Task",
+      "Resource": "${ReportCardWorkerArn}",
+      "Parameters": {
+        "action": "complete",
+        "school_id.$": "$.school_id",
+        "class_id.$": "$.class_id",
+        "term_id.$": "$.term_id",
+        "checkpoint.$": "$.checkpoint",
+        "calculation_id.$": "$.calculation_id"
+      },
+      "Retry": [
+        { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }
+      ],
+      "End": true
+    },
+    "MarkFailed": {
+      "Type": "Task",
+      "Resource": "${ReportCardWorkerArn}",
+      "Parameters": {
+        "action": "fail",
+        "school_id.$": "$.school_id",
+        "class_id.$": "$.class_id",
+        "term_id.$": "$.term_id",
+        "checkpoint.$": "$.checkpoint",
+        "calculation_id.$": "$.calculation_id",
+        "error.$": "$.failure.Error"
+      },
+      "Retry": [
+        { "ErrorEquals": ["States.ALL"], "IntervalSeconds": 2, "MaxAttempts": 3, "BackoffRate": 2 }
+      ],
+      "Next": "Failed"
+    },
+    "Failed": { "Type": "Fail", "Error": "ReportCardsFailed", "Cause": "One or more report cards could not be generated" }
+  }
+}
