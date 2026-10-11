@@ -26,9 +26,14 @@ export function cellText(score) {
   return isBlank(score.raw_score) ? '' : String(score.raw_score);
 }
 
-export const sameMark = (left, right) =>
-  (left.mark_status || MARK.SCORED) === (right.mark_status || MARK.SCORED) &&
-  left.raw_score === right.raw_score;
+export function markOf(mark) {
+  if (!mark) return null;
+  const status = mark.mark_status || MARK.SCORED;
+  if (status !== MARK.SCORED) return status;
+  return isBlank(mark.raw_score) ? null : mark.raw_score;
+}
+
+export const sameMark = (left, right) => markOf(left) === markOf(right);
 
 /**
  * @param {{student_id:string, raw_score:any}} entry

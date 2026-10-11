@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createSchema, createYoga } from 'graphql-yoga';
-import { issueToken, verifyToken } from './token.js';
+import { verifyIdToken } from './cognito-auth.js';
 import { RESOLVERS } from './resolvers.js';
 import { startLambdaEndpoint } from './lambda-endpoint.js';
 import { startEventBridgeEndpoint } from './eventbridge-endpoint.js';
@@ -54,65 +54,12 @@ const yoga = createYoga({
   context: async ({ request }) => {
     const auth = request.headers.get('authorization') || '';
     const token = auth.replace(/^Bearer\s+/i, '');
-    return { identity: token ? await verifyToken(token) : null };
+    return { identity: token ? await verifyIdToken(token) : null };
   },
 });
 
-async function devToken(req, res) {
-  if (!process.env.DDB_ENDPOINT) {
-    res.writeHead(404).end();
-    return;
-  }
-  let body = '';
-  for await (const chunk of req) body += chunk;
-  const { email } = JSON.parse(body || '{}');
-  const { QueryCommand } = await import('@aws-sdk/lib-dynamodb');
-  const { ddb } = await import('../backend/library/client.js');
-  const { TABLE, pk } = await import('../backend/library/keys.js');
-  const schoolId = process.env.SEED_SCHOOL_ID || 'sch_saint_innocent';
-  const found = await ddb.send(
-    new QueryCommand({
-      TableName: TABLE,
-      KeyConditionExpression: 'PK = :p AND begins_with(SK, :s)',
-      FilterExpression: 'email = :e',
-      ExpressionAttributeValues: { ':p': pk(schoolId), ':s': 'TEACHER#', ':e': email },
-    })
-  );
-  const teacher = found.Items?.[0];
-  if (!teacher) {
-    res
-      .writeHead(401, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
-      .end('{"error":"unknown user"}');
-    return;
-  }
-  const token = issueToken({
-    sub: teacher.teacher_id,
-    email: teacher.email,
-    name: `${teacher.first_name} ${teacher.last_name}`,
-    groups: teacher.groups,
-    schoolId,
-  });
-  res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-  res.end(JSON.stringify({ token }));
-}
-
 const port = Number(process.env.PORT || 4000);
-createServer(async (req, res) => {
-  if (req.url === '/dev/token') {
-    if (req.method === 'OPTIONS') {
-      res
-        .writeHead(204, {
-          'access-control-allow-origin': '*',
-          'access-control-allow-headers': 'content-type',
-          'access-control-allow-methods': 'POST, OPTIONS',
-        })
-        .end();
-      return;
-    }
-    return devToken(req, res);
-  }
-  return yoga(req, res);
-}).listen(port, () => {
+createServer((req, res) => yoga(req, res)).listen(port, () => {
   console.log(`AppSync (local) on http://localhost:${port}/graphql`);
 });
 

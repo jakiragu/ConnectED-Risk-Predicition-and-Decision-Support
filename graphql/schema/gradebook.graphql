@@ -61,6 +61,10 @@ type Score {
   _deleted: Boolean!
 }
 
+enum Role { Admin Teacher }
+enum PersonStatus { ACTIVE INACTIVE }
+enum ClassStatus { CURRENT PAST }
+
 type Student {
   student_id: ID!
   school_id: ID!
@@ -69,6 +73,7 @@ type Student {
   admission_no: String!
   class_id: ID
   status: String
+  _version: Int
 }
 
 type Class {
@@ -79,6 +84,55 @@ type Class {
   stream: String!
   year: Int
   status: String
+  class_teacher_id: ID
+  class_teacher_name: String      # listSchoolClasses only
+  student_count: Int              # listSchoolClasses only
+  my_subjects: [String!]          # listMyClasses: subjects this user may create papers and enter marks for
+  is_class_teacher: Boolean       # listMyClasses: this user is the class teacher
+  _version: Int
+}
+
+type Assignment {
+  class_id: ID!
+  subject: String!
+}
+
+type Teacher {
+  teacher_id: ID!                 # the Cognito sub
+  school_id: ID!
+  email: String!
+  first_name: String!
+  last_name: String!
+  role: Role!
+  status: PersonStatus!
+  assignments: [Assignment!]!     # (class, subject) pairs this teacher teaches
+  class_teacher_of: ID            # at most one class
+  created_at: AWSDateTime
+  updated_at: AWSDateTime
+  _version: Int!
+}
+
+type TeacherAccount {
+  teacher: Teacher!
+  temporary_password: String      # shown once; the teacher chooses their own at first sign-in
+}
+
+type ReportCardEntry {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  student_status: String!
+  checkpoint: Checkpoint!
+  kind: String                    # OFFICIAL | PROVISIONAL
+  available: Boolean!
+  generated_at: AWSDateTime
+}
+
+type ReportCardDownload {
+  url: String!                    # pre-signed; valid for five minutes
+  file_name: String!
+  expires_at: AWSDateTime!
 }
 
 type Term {
@@ -258,6 +312,117 @@ type ClassOutcome {
 
 # ------------------------------------------------------------------- inputs
 
+input CreateTeacherInput {
+  school_id: ID!
+  email: String!
+  first_name: String!
+  last_name: String!
+  role: Role!
+}
+
+input UpdateTeacherInput {
+  school_id: ID!
+  teacher_id: ID!
+  first_name: String
+  last_name: String
+  role: Role
+  _version: Int!
+}
+
+input AssignmentInput {
+  class_id: ID!
+  subject: String!
+}
+
+input SetTeacherAssignmentsInput {
+  school_id: ID!
+  teacher_id: ID!
+  assignments: [AssignmentInput!]!   # replaces the whole list
+  _version: Int!
+}
+
+input SetClassTeacherInput {
+  school_id: ID!
+  class_id: ID!
+  teacher_id: ID                     # null removes the class teacher
+  _version: Int!                     # the class's version
+}
+
+input TeacherRefInput {
+  school_id: ID!
+  teacher_id: ID!
+  _version: Int!
+}
+
+input ResetTeacherPasswordInput {
+  school_id: ID!
+  teacher_id: ID!
+}
+
+input CreateClassInput {
+  school_id: ID!
+  grade: String!                     # e.g. Form 4
+  stream: String!                    # e.g. South
+  year: Int!
+  name: String                       # default "<grade> <stream>"
+}
+
+input UpdateClassInput {
+  school_id: ID!
+  class_id: ID!
+  grade: String
+  stream: String
+  year: Int
+  name: String
+  status: ClassStatus                # PAST archives the class
+  _version: Int!
+}
+
+input DeleteClassInput {
+  school_id: ID!
+  class_id: ID!
+  _version: Int!
+}
+
+input CreateStudentInput {
+  school_id: ID!
+  class_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String!
+}
+
+input UpdateStudentInput {
+  school_id: ID!
+  student_id: ID!
+  first_name: String
+  last_name: String
+  admission_no: String
+  _version: Int!
+}
+
+input TransferStudentInput {
+  school_id: ID!
+  student_id: ID!
+  to_class_id: ID!
+  _version: Int!
+}
+
+input SetStudentStatusInput {
+  school_id: ID!
+  student_id: ID!
+  status: PersonStatus!
+  _version: Int!
+}
+
+input ReportCardDownloadInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  student_id: ID!
+}
+
 input CreateAssessmentInput {
   assessment_id: ID          # client-generated ULID; makes a retry idempotent
   school_id: ID!
@@ -370,6 +535,11 @@ type Query {
   listResultSets(school_id: ID!, class_id: ID!, term_id: ID!): [ResultSet!]!
   listCheckpointStatus(school_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ClassCheckpointStatus!]!
   getTermResults(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [TermResult!]!
+  me(school_id: ID!): Teacher!
+  listTeachers(school_id: ID!): [Teacher!]!                                  # Admin
+  listSchoolClasses(school_id: ID!): [Class!]!                               # Admin
+  listStudents(school_id: ID!, class_id: ID!, include_inactive: Boolean): [Student!]!
+  listReportCards(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ReportCardEntry!]!  # Admin | class teacher
 }
 
 type Mutation {
@@ -383,8 +553,24 @@ type Mutation {
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
   resolveScoreConflict(input: ResolveScoreConflictInput!): Score
   setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # any gradebook role
-  calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin | Head Teacher
+  calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin
   calculateSchoolResults(input: CalculateSchoolResultsInput!): [ClassOutcome!]!
-  publishResults(input: PublishResultsInput!): ResultSet!                  # Admin | Head Teacher; idempotent
+  publishResults(input: PublishResultsInput!): ResultSet!                  # Admin; idempotent
   publishSchoolResults(input: PublishSchoolResultsInput!): [ClassOutcome!]!
+
+  createTeacher(input: CreateTeacherInput!): TeacherAccount!                 # Admin; creates the sign-in account
+  updateTeacher(input: UpdateTeacherInput!): Teacher!                        # Admin
+  setTeacherAssignments(input: SetTeacherAssignmentsInput!): Teacher!        # Admin
+  setClassTeacher(input: SetClassTeacherInput!): Class!                      # Admin
+  deactivateTeacher(input: TeacherRefInput!): Teacher!                       # Admin
+  reactivateTeacher(input: TeacherRefInput!): Teacher!                       # Admin
+  resetTeacherPassword(input: ResetTeacherPasswordInput!): TeacherAccount!   # Admin
+  createClass(input: CreateClassInput!): Class!                              # Admin
+  updateClass(input: UpdateClassInput!): Class!                              # Admin
+  deleteClass(input: DeleteClassInput!): ID!                                 # Admin; empty classes only
+  createStudent(input: CreateStudentInput!): Student!                        # Admin | class teacher
+  updateStudent(input: UpdateStudentInput!): Student!                        # Admin | class teacher
+  transferStudent(input: TransferStudentInput!): Student!                    # Admin
+  setStudentStatus(input: SetStudentStatusInput!): Student!                  # Admin | class teacher
+  requestReportCardDownload(input: ReportCardDownloadInput!): ReportCardDownload!   # Admin | class teacher
 }

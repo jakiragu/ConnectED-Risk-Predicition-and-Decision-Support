@@ -3,9 +3,23 @@ import { PutCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb } from '../backend/library/client.js';
 import { TABLE, pk, sk } from '../backend/library/keys.js';
 import { ensureTable } from './create-table.js';
-import { issueToken } from './token.js';
+import * as identity from '../backend/library/identity.js';
 import { pathToFileURL } from 'node:url';
 
+/**
+ * Seeds Saint Innocent High School from the prototype. Deterministic: the same
+ * ids every run, so screenshots, tests and demo scripts stay valid.
+ *
+ * This writes through the same key helpers the services use, so the local data
+ * is byte-for-byte what a real DynamoDB table would hold. Migrating it after
+ * the lift is a scan-and-batch-write, not a transformation.
+ *
+ * Teachers get real sign-in accounts in the Cognito user pool (cognito-local
+ * locally) through the same identity.js calls the school service uses. Their
+ * teacher_id is the account's sub, so it is stable for as long as the pool's
+ * data (local/.data/cognito) is kept. Run `npm run aws:setup` first.
+ */
+const DEV_PASSWORD = process.env.SEED_PASSWORD || 'Gradebook-Dev-2026!';
 const SCHOOL = 'sch_saint_innocent';
 const TERM = 'term_2026_2';
 
@@ -72,7 +86,7 @@ for (const form of [2, 4]) {
     items.push({
       PK: pk(SCHOOL), SK: sk.klass(classId), entity: 'Class',
       class_id: classId, school_id: SCHOOL, name: `Form ${form} ${stream}`,
-      grade: `Form ${form}`, stream, year: 2026, status: 'CURRENT',
+      grade: `Form ${form}`, stream, year: 2026, status: 'CURRENT', _version: 1,
     });
   }
 }
@@ -83,36 +97,37 @@ const TEST_CLASS = { classId: 'cls_test', name: 'Form 4 Test' };
 items.push({
   PK: pk(SCHOOL), SK: sk.klass(TEST_CLASS.classId), entity: 'Class',
   class_id: TEST_CLASS.classId, school_id: SCHOOL, name: TEST_CLASS.name,
-  grade: 'Form 4', stream: 'Test', year: 2026, status: 'CURRENT',
+  grade: 'Form 4', stream: 'Test', year: 2026, status: 'CURRENT', _version: 1,
 });
 const allClassIds = [...classes.map((c) => c.classId), TEST_CLASS.classId];
 
-// Teachers. Jane Doe teaches Kiswahili to four groups; Zama Nile is the head
-// teacher and John Man is an administrator.
-const jane = 'usr_jane_doe';
-const zama = 'usr_zama_nile';
-const admin = 'usr_john_man';
-
-const janeClasses = ['cls_f4south', 'cls_f4east', 'cls_f2east', 'cls_f2west', TEST_CLASS.classId];
-
-items.push({
-  PK: pk(SCHOOL), SK: sk.teacher(jane), entity: 'Teacher',
-  teacher_id: jane, school_id: SCHOOL, first_name: 'Jane', last_name: 'Doe',
-  email: 'jane.doe@saintinnocent.ac.ke', subjects: ['Kiswahili'],
-  class_ids: janeClasses, groups: ['Teacher'], status: 'ACTIVE',
-});
-items.push({
-  PK: pk(SCHOOL), SK: sk.teacher(zama), entity: 'Teacher',
-  teacher_id: zama, school_id: SCHOOL, first_name: 'Zama', last_name: 'Nile',
-  email: 'zama.nile@saintinnocent.ac.ke', subjects: ['CRE'],
-  class_ids: allClassIds, groups: ['Head Teacher'], status: 'ACTIVE',
-});
-items.push({
-  PK: pk(SCHOOL), SK: sk.teacher(admin), entity: 'Teacher',
-  teacher_id: admin, school_id: SCHOOL, first_name: 'John', last_name: 'Man',
-  email: 'john.man@saintinnocent.ac.ke', subjects: [],
-  class_ids: allClassIds, groups: ['Admin'], status: 'ACTIVE',
-});
+// Teachers, with what each one teaches where. Jane Doe teaches Kiswahili and
+// is class teacher of the test class; Zama Nile teaches CRE everywhere and is
+// class teacher of Form 4 South; Peter Otieno teaches English and Mathematics
+// in Form 4 South and the test class; John Man is the administrator.
+const TEACHERS = [
+  {
+    key: 'jane', first_name: 'Jane', last_name: 'Doe', email: 'jane.doe@saintinnocent.ac.ke', role: 'Teacher',
+    assignments: ['cls_f4south', 'cls_f4east', 'cls_f2east', 'cls_f2west', TEST_CLASS.classId].map((class_id) => ({ class_id, subject: 'Kiswahili' })),
+    class_teacher_of: TEST_CLASS.classId,
+  },
+  {
+    key: 'zama', first_name: 'Zama', last_name: 'Nile', email: 'zama.nile@saintinnocent.ac.ke', role: 'Teacher',
+    assignments: allClassIds.map((class_id) => ({ class_id, subject: 'CRE' })),
+    class_teacher_of: 'cls_f4south',
+  },
+  {
+    key: 'peter', first_name: 'Peter', last_name: 'Otieno', email: 'peter.otieno@saintinnocent.ac.ke', role: 'Teacher',
+    assignments: ['cls_f4south', TEST_CLASS.classId].flatMap((class_id) => ['English', 'Mathematics'].map((subject) => ({ class_id, subject }))),
+    class_teacher_of: null,
+  },
+  {
+    key: 'john', first_name: 'John', last_name: 'Man', email: 'john.man@saintinnocent.ac.ke', role: 'Admin',
+    assignments: [],
+    class_teacher_of: null,
+  },
+];
+const janeClasses = TEACHERS[0].assignments.map((a) => a.class_id);
 
 // Students. The three named in the prototype keep their admission numbers.
 const named = [
@@ -156,12 +171,41 @@ TEST_STUDENTS.forEach(([first, last], i) => {
 for (const s of students) {
   items.push({
     PK: pk(SCHOOL), SK: sk.student(s.student_id), entity: 'Student',
-    school_id: SCHOOL, status: 'ACTIVE', ...s,
+    school_id: SCHOOL, status: 'ACTIVE', _version: 1, ...s,
   });
+  items.push({
+    PK: pk(SCHOOL), SK: sk.admissionNo(s.admission_no), entity: 'AdmissionNo',
+    admission_no: s.admission_no, student_id: s.student_id,
+  });
+}
+
+/** The Cognito account for a seeded teacher, created or found, with the dev password. */
+async function account(t) {
+  if (!process.env.COGNITO_USER_POOL_ID) {
+    throw new Error('COGNITO_USER_POOL_ID is not set. Run `npm run aws:setup` first.');
+  }
+  const acct = await identity.createAccount({ email: t.email, name: `${t.first_name} ${t.last_name}`, schoolId: SCHOOL });
+  await identity.setRole(acct.sub, t.role);
+  await identity.setPermanentPassword(acct.sub, DEV_PASSWORD);
+  return acct.sub;
 }
 
 async function run() {
   await ensureTable({ reset: process.argv.includes('--reset') });
+
+  const subs = {};
+  for (const t of TEACHERS) subs[t.key] = await account(t);
+  for (const t of TEACHERS) {
+    const { key, ...profile } = t;
+    items.push({
+      PK: pk(SCHOOL), SK: sk.teacher(subs[key]), entity: 'Teacher',
+      teacher_id: subs[key], school_id: SCHOOL, status: 'ACTIVE', _version: 1, ...profile,
+    });
+    if (t.class_teacher_of) {
+      items.find((i) => i.entity === 'Class' && i.class_id === t.class_teacher_of).class_teacher_id = subs[key];
+    }
+  }
+
   for (let i = 0; i < items.length; i += 25) {
     await ddb.send(
       new BatchWriteCommand({
@@ -170,19 +214,17 @@ async function run() {
     );
   }
 
-  const tokens = {
-    teacher: issueToken({ sub: jane, email: 'jane.doe@saintinnocent.ac.ke', name: 'Jane Doe', groups: ['Teacher'], schoolId: SCHOOL }),
-    headTeacher: issueToken({ sub: zama, email: 'zama.nile@saintinnocent.ac.ke', name: 'Mrs. Zama Nile', groups: ['Head Teacher'], schoolId: SCHOOL }),
-    admin: issueToken({ sub: admin, email: 'john.man@saintinnocent.ac.ke', name: 'Mr John Man', groups: ['Admin'], schoolId: SCHOOL }),
-  };
-
   console.log(`Seeded ${items.length} items into ${TABLE}`);
   console.log(`  school  ${SCHOOL}`);
   console.log(`  term    ${TERM}`);
   console.log(`  classes ${classes.length + 1}, students ${students.length}`);
-  console.log(`  test    ${TEST_CLASS.name} (${TEST_CLASS.classId}), ${TEST_STUDENTS.length} students, assigned to Jane`);
-  console.log('\nSign-in passwords are not used locally. Development tokens:\n');
-  for (const [role, t] of Object.entries(tokens)) console.log(`${role}:\n${t}\n`);
+  console.log(`  test    ${TEST_CLASS.name} (${TEST_CLASS.classId}), ${TEST_STUDENTS.length} students, class teacher Jane Doe`);
+  console.log(`\nSign-in accounts (password ${DEV_PASSWORD}):`);
+  for (const t of TEACHERS) {
+    const classTeacher = t.class_teacher_of ? `, class teacher of ${t.class_teacher_of}` : '';
+    const teaches = [...new Set(t.assignments.map((a) => a.subject))].join(', ') || 'all classes';
+    console.log(`  ${t.role.padEnd(8)} ${t.email.padEnd(36)} ${teaches}${classTeacher}`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) run();

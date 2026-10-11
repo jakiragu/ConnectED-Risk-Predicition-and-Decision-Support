@@ -43,6 +43,9 @@ export default function AssessmentForm() {
   const [termId, setTermId] = useState(params.get('term') || '');
   const { online } = useSync();
   const classes = useLive(() => db().classes.toArray(), [], []);
+  const isAdmin = actor.groups.includes('Admin');
+  // Teachers create papers only for the subjects they teach in the chosen class.
+  const allowedSubjects = isAdmin ? SUBJECTS : classes.find((c) => c.class_id === classId)?.my_subjects || [];
   const siblings = useLive(
     () => (classId && termId ? db().assessments.where('[class_id+term_id]').equals([classId, termId]).toArray() : []),
     [classId, termId],
@@ -222,8 +225,8 @@ export default function AssessmentForm() {
               id="subject"
               value={form.subject}
               onChange={set('subject')}
-              options={isEdit && !SUBJECTS.includes(form.subject) ? [form.subject, ...SUBJECTS] : SUBJECTS}
-              placeholder="Choose subject"
+              options={isEdit ? [form.subject] : allowedSubjects}
+              placeholder={!isEdit && classId && !allowedSubjects.length ? 'You teach no subject in this class' : 'Choose subject'}
               disabled={isEdit}
             />
           </Field>

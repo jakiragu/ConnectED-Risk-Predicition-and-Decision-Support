@@ -9,10 +9,16 @@ export const sk = {
   term: (id) => `TERM#${id}`,
   termPrefix: () => 'TERM#',
   student: (id) => `STUDENT#${id}`,
+  studentPrefix: () => 'STUDENT#',
+  // Admission numbers are unique in a school; claimed in the same transaction as the student.
+  admissionNo: (no) => `ADMNO#${no}`,
   teacher: (id) => `TEACHER#${id}`,
+  teacherPrefix: () => 'TEACHER#',
   klass: (id) => `CLASS#${id}`,
+  classPrefix: () => 'CLASS#',
   assessment: (id) => `ASSESSMENT#${id}`,
- 
+  // One paper number per class + term + subject + checkpoint type. Claimed in the
+  // same transaction as the assessment, so two papers can never share a number.
   paperSlot: (termId, classId, subject, assessmentType, paperNo) =>
     `PAPER#${termId}#CLASS#${classId}#${subject}#${assessmentType}#${paperNo}`,
   score: (assessmentId, studentId) => `SCORE#${assessmentId}#${studentId}`,
@@ -30,6 +36,8 @@ export const sk = {
   termResultPrefix: (termId, classId, checkpoint, calculationId) =>
     `TERMRESULT#${termId}#CLASS#${classId}#${checkpoint}#${calculationId}#`,
   reportCard: (termId, checkpoint, studentId) => `REPORTCARD#${termId}#${checkpoint}#${studentId}`,
+  reportCardPrefix: (termId, checkpoint) => `REPORTCARD#${termId}#${checkpoint}#`,
+  reportCardDownload: (ulid) => `RCDOWNLOAD#${ulid}`,
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,

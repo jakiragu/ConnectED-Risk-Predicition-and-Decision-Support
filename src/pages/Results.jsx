@@ -57,7 +57,7 @@ function Issues({ set }) {
   );
 }
 
-/** Every class for one term + checkpoint: Admin/Head Teacher calculate and publish many at once. */
+/** Every class for one term + checkpoint: administrators calculate and publish many at once. */
 function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChanged }) {
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState(new Set());
@@ -293,7 +293,7 @@ export default function Results() {
   const { actor } = useAuth();
   const { online } = useSync();
   const [params, setParams] = useSearchParams();
-  const reviewer = actor.groups.includes('Admin') || actor.groups.includes('Head Teacher');
+  const reviewer = actor.groups.includes('Admin');
   const { terms, defaultTermId } = useTerms(actor.schoolId);
 
   const termId = params.get('term') || defaultTermId;

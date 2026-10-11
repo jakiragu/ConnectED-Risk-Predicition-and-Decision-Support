@@ -36,7 +36,7 @@ export default function Assessments() {
   const [error, setError] = useState(null);
 
   const isAdmin = actor.groups.includes('Admin');
-  const canLock = isAdmin || actor.groups.includes('Head Teacher');
+  const canLock = isAdmin;
 
   const classes = useLive(() => db().classes.toArray(), [], []);
   const assessments = useLive(
@@ -67,7 +67,6 @@ export default function Assessments() {
     refresh().catch((e) => setError(e.message));
     return classId && termId ? watchClass(classId, termId) : undefined;
   }, [classId, termId, refresh]);
-
 
   async function run(mutation, variables) {
     setError(null);
@@ -118,7 +117,10 @@ export default function Assessments() {
     [list]
   );
 
-  const className = classes.find((c) => c.class_id === classId)?.name;
+  const klass = classes.find((c) => c.class_id === classId);
+  const className = klass?.name;
+  // Papers of subjects this user teaches here can be edited and marked; the rest are view-only.
+  const canWrite = (a) => isAdmin || (klass?.my_subjects || []).includes(a.subject);
 
   return (
     <>
@@ -195,7 +197,7 @@ export default function Assessments() {
                 <td className="actions">
                   {!a._failed && (
                     <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}&term=${termId}`}>
-                      {a.status === 'LOCKED' ? 'View marks' : 'Enter marks'}
+                      {a.status === 'LOCKED' || !canWrite(a) ? 'View marks' : 'Enter marks'}
                     </Link>
                   )}
                   {!a._pending && online && (
@@ -203,7 +205,7 @@ export default function Assessments() {
                       {a.status === 'LOCKED' && isAdmin && !(a.published_in || []).length && (
                         <button type="button" className="btn link" onClick={() => unlock(a)}>Unlock</button>
                       )}
-                      {a.status !== 'LOCKED' && (
+                      {a.status !== 'LOCKED' && canWrite(a) && (
                         <>
                           <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}&term=${termId}`}>Edit</Link>
                           {canLock && (

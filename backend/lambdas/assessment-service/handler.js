@@ -1,12 +1,16 @@
 import {
-  identityOf,
   assertTenant,
-  assertClassAccess,
+  assertClassRead,
+  assertSubjectWrite,
   assertCanLock,
   assertAdmin,
-  hasRole,
-  ROLE,
+  canSeeSubject,
+  isAdmin,
+  isClassTeacherOf,
+  readableClassIds,
+  subjectsITeach,
 } from '../../library/authz.js';
+import { resolveActor } from '../../library/actor.js';
 import {
   validateAssessment,
   deletionBlocker,
@@ -14,6 +18,7 @@ import {
   maxScoreFrozen,
   weightUsed,
   TOTAL_WEIGHT,
+  SUBJECTS,
 } from '../../library/assessment.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
@@ -22,7 +27,7 @@ import * as scores from '../../library/scoreRepo.js';
 import * as platform from '../../library/platformRepo.js';
 
 export async function handler(event) {
-  const actor = identityOf(event);
+  const actor = await resolveActor(event);
   const args = event.arguments || {};
   const input = args.input || args;
 
@@ -78,13 +83,14 @@ async function decorateOne(a) {
   return decorate(a, roster.length);
 }
 
-async function requireClassAccess(actor, classId) {
-  assertClassAccess(actor, classId, await platform.assignments(actor.schoolId, actor.sub));
+function assertCanSee(actor, a) {
+  assertClassRead(actor, a.class_id);
+  if (!canSeeSubject(actor, a.class_id, a.subject)) throw notFound('Assessment not found');
 }
 
 async function createAssessment(actor, input) {
   assertTenant(actor, input.school_id);
-  await requireClassAccess(actor, input.class_id);
+  assertSubjectWrite(actor, input.class_id, input.subject);
   if (await assessments.termLocked(input.school_id, input.term_id, input.class_id)) throw locked(TERM_LOCKED);
 
   const candidate = { ...input, assessment_id: input.assessment_id || ulid() };
@@ -106,7 +112,8 @@ async function updateAssessment(actor, input) {
 
   const existing = await assessments.get(input.school_id, input.assessment_id);
   if (!existing || existing._deleted) throw notFound('Assessment not found');
-  await requireClassAccess(actor, existing.class_id);
+  assertCanSee(actor, existing);
+  assertSubjectWrite(actor, existing.class_id, existing.subject);
   if (existing.status === 'LOCKED') throw locked('This assessment is locked');
   if (await assessments.termLocked(input.school_id, existing.term_id, existing.class_id)) throw locked(TERM_LOCKED);
 
@@ -186,7 +193,8 @@ async function deleteAssessment(actor, input) {
 
   const existing = await assessments.get(input.school_id, input.assessment_id);
   if (!existing) return input.assessment_id;
-  await requireClassAccess(actor, existing.class_id);
+  assertCanSee(actor, existing);
+  assertSubjectWrite(actor, existing.class_id, existing.subject);
   if (existing._deleted) return input.assessment_id;
 
   const termIsLocked = await assessments.termLocked(input.school_id, existing.term_id, existing.class_id);
@@ -272,18 +280,20 @@ async function getAssessment(actor, { school_id, assessment_id }) {
   assertTenant(actor, school_id);
   const item = await assessments.get(school_id, assessment_id);
   if (!item || item._deleted) return null;
-  await requireClassAccess(actor, item.class_id);
+  assertClassRead(actor, item.class_id);
+  if (!canSeeSubject(actor, item.class_id, item.subject)) return null;
   return decorateOne(item);
 }
 
 async function listAssessmentsByClass(actor, { school_id, class_id, term_id, limit, nextToken }) {
   assertTenant(actor, school_id);
-  await requireClassAccess(actor, class_id);
+  assertClassRead(actor, class_id);
   const [page, roster] = await Promise.all([
     assessments.listByClass(school_id, class_id, term_id, { limit, nextToken }),
     platform.roster(school_id, class_id),
   ]);
-  return { ...page, items: page.items.map((a) => decorate(a, roster.length)) };
+  const visible = page.items.filter((a) => canSeeSubject(actor, class_id, a.subject));
+  return { ...page, items: visible.map((a) => decorate(a, roster.length)) };
 }
 
 async function listDeletedAssessments(actor, { school_id, class_id, term_id }) {
@@ -299,9 +309,11 @@ async function listDeletedAssessments(actor, { school_id, class_id, term_id }) {
 async function listMyClasses(actor, { school_id }) {
   assertTenant(actor, school_id);
   const all = await platform.listClasses(school_id);
-  if (hasRole(actor, ROLE.ADMIN, ROLE.HEAD_TEACHER)) return all;
-  const ids = await platform.assignments(actor.schoolId, actor.sub);
-  return all.filter((c) => ids.includes(c.class_id));
+  if (isAdmin(actor)) return all.map((c) => ({ ...c, my_subjects: SUBJECTS, is_class_teacher: false }));
+  const ids = readableClassIds(actor);
+  return all
+    .filter((c) => ids.has(c.class_id))
+    .map((c) => ({ ...c, my_subjects: subjectsITeach(actor, c.class_id), is_class_teacher: isClassTeacherOf(actor, c.class_id) }));
 }
 
 async function listTerms(actor, { school_id }) {
@@ -311,7 +323,7 @@ async function listTerms(actor, { school_id }) {
 
 async function getClassRoster(actor, { school_id, class_id }) {
   assertTenant(actor, school_id);
-  await requireClassAccess(actor, class_id);
+  assertClassRead(actor, class_id);
   return platform.roster(school_id, class_id);
 }
 

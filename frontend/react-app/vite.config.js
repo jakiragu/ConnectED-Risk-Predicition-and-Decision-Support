@@ -3,8 +3,10 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
 const appSource = fileURLToPath(new URL('../../src', import.meta.url));
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 export default defineConfig({
+  envDir: repoRoot,
   plugins: [react()],
   resolve: { alias: { '/src': appSource } },
   server: { port: 5173 },

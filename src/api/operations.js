@@ -13,7 +13,7 @@ const SCORE_FIELDS = `
 export const LIST_MY_CLASSES = `
   query ListMyClasses($school_id: ID!) {
     listMyClasses(school_id: $school_id) {
-      class_id name grade stream year status
+      class_id name grade stream year status class_teacher_id my_subjects is_class_teacher
     }
   }`;
 
@@ -102,7 +102,7 @@ export const SUBMIT_SCORES = `
     }
   }`;
 
-  export const SYNC_SCORES = `
+export const SYNC_SCORES = `
   query SyncScores($school_id: ID!, $class_id: ID!, $lastSync: Float, $nextToken: String) {
     syncScores(school_id: $school_id, class_id: $class_id, lastSync: $lastSync, nextToken: $nextToken) {
       startedAt nextToken
@@ -115,10 +115,12 @@ export const RESOLVE_SCORE_CONFLICT = `
     resolveScoreConflict(input: $input) { ${SCORE_FIELDS} }
   }`;
 
-  export const LIST_TERMS = `
+export const LIST_TERMS = `
   query ListTerms($school_id: ID!) {
     listTerms(school_id: $school_id) { term_id name start_date end_date status }
   }`;
+
+// ------------------------------------------------------------------ results
 
 const GRADE_RULE_FIELDS = `
   term_id pass_mark missing_score_policy
@@ -190,4 +192,89 @@ export const CALCULATE_SCHOOL_RESULTS = `
 export const PUBLISH_SCHOOL_RESULTS = `
   mutation PublishSchoolResults($input: PublishSchoolResultsInput!) {
     publishSchoolResults(input: $input) { ${OUTCOME_FIELDS} }
+  }`;
+
+// ------------------------------------------------------- people and classes
+
+const TEACHER_FIELDS = `
+  teacher_id school_id email first_name last_name role status class_teacher_of
+  assignments { class_id subject } created_at updated_at _version
+`;
+const CLASS_FIELDS = `class_id name grade stream year status class_teacher_id class_teacher_name student_count _version`;
+const STUDENT_FIELDS = `student_id first_name last_name admission_no class_id status _version`;
+
+export const ME = `
+  query Me($school_id: ID!) { me(school_id: $school_id) { ${TEACHER_FIELDS} } }`;
+
+export const LIST_TEACHERS = `
+  query ListTeachers($school_id: ID!) { listTeachers(school_id: $school_id) { ${TEACHER_FIELDS} } }`;
+
+export const CREATE_TEACHER = `
+  mutation CreateTeacher($input: CreateTeacherInput!) {
+    createTeacher(input: $input) { teacher { ${TEACHER_FIELDS} } temporary_password }
+  }`;
+
+export const UPDATE_TEACHER = `
+  mutation UpdateTeacher($input: UpdateTeacherInput!) { updateTeacher(input: $input) { ${TEACHER_FIELDS} } }`;
+
+export const SET_TEACHER_ASSIGNMENTS = `
+  mutation SetTeacherAssignments($input: SetTeacherAssignmentsInput!) {
+    setTeacherAssignments(input: $input) { ${TEACHER_FIELDS} }
+  }`;
+
+export const SET_CLASS_TEACHER = `
+  mutation SetClassTeacher($input: SetClassTeacherInput!) { setClassTeacher(input: $input) { ${CLASS_FIELDS} } }`;
+
+export const DEACTIVATE_TEACHER = `
+  mutation DeactivateTeacher($input: TeacherRefInput!) { deactivateTeacher(input: $input) { ${TEACHER_FIELDS} } }`;
+
+export const REACTIVATE_TEACHER = `
+  mutation ReactivateTeacher($input: TeacherRefInput!) { reactivateTeacher(input: $input) { ${TEACHER_FIELDS} } }`;
+
+export const RESET_TEACHER_PASSWORD = `
+  mutation ResetTeacherPassword($input: ResetTeacherPasswordInput!) {
+    resetTeacherPassword(input: $input) { teacher { ${TEACHER_FIELDS} } temporary_password }
+  }`;
+
+export const LIST_SCHOOL_CLASSES = `
+  query ListSchoolClasses($school_id: ID!) { listSchoolClasses(school_id: $school_id) { ${CLASS_FIELDS} } }`;
+
+export const CREATE_CLASS = `
+  mutation CreateClass($input: CreateClassInput!) { createClass(input: $input) { ${CLASS_FIELDS} } }`;
+
+export const UPDATE_CLASS = `
+  mutation UpdateClass($input: UpdateClassInput!) { updateClass(input: $input) { ${CLASS_FIELDS} } }`;
+
+export const DELETE_CLASS = `
+  mutation DeleteClass($input: DeleteClassInput!) { deleteClass(input: $input) }`;
+
+export const LIST_STUDENTS = `
+  query ListStudents($school_id: ID!, $class_id: ID!, $include_inactive: Boolean) {
+    listStudents(school_id: $school_id, class_id: $class_id, include_inactive: $include_inactive) { ${STUDENT_FIELDS} }
+  }`;
+
+export const CREATE_STUDENT = `
+  mutation CreateStudent($input: CreateStudentInput!) { createStudent(input: $input) { ${STUDENT_FIELDS} } }`;
+
+export const UPDATE_STUDENT = `
+  mutation UpdateStudent($input: UpdateStudentInput!) { updateStudent(input: $input) { ${STUDENT_FIELDS} } }`;
+
+export const TRANSFER_STUDENT = `
+  mutation TransferStudent($input: TransferStudentInput!) { transferStudent(input: $input) { ${STUDENT_FIELDS} } }`;
+
+export const SET_STUDENT_STATUS = `
+  mutation SetStudentStatus($input: SetStudentStatusInput!) { setStudentStatus(input: $input) { ${STUDENT_FIELDS} } }`;
+
+// ------------------------------------------------------------ report cards
+
+export const LIST_REPORT_CARDS = `
+  query ListReportCards($school_id: ID!, $class_id: ID!, $term_id: ID!, $checkpoint: Checkpoint!) {
+    listReportCards(school_id: $school_id, class_id: $class_id, term_id: $term_id, checkpoint: $checkpoint) {
+      student_id admission_no first_name last_name student_status checkpoint kind available generated_at
+    }
+  }`;
+
+export const REQUEST_REPORT_CARD_DOWNLOAD = `
+  mutation RequestReportCardDownload($input: ReportCardDownloadInput!) {
+    requestReportCardDownload(input: $input) { url file_name expires_at }
   }`;

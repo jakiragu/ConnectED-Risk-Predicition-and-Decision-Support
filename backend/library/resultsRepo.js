@@ -92,12 +92,6 @@ export async function getRow(schoolId, set, studentId) {
   return Item || null;
 }
 
-/**
- * Rows first, then the result set as the commit point. The set write is
- * conditional on the version this calculation started from and on the class
- * term being open. If it fails, the rows sit under an unreferenced calculation
- * id and are never read.
- */
 export async function saveCalculation(schoolId, scope, { calculationId, calc, existing, actor, extra = {} }) {
   const ts = nowIso();
   const rows = calc.rows.map((r) => ({
@@ -164,17 +158,6 @@ export async function dropRows(schoolId, set) {
   await batchWrite(rows.map((r) => ({ DeleteRequest: { Key: { PK: r.PK, SK: r.SK } } })));
 }
 
-/**
- * Publication of one class checkpoint, in one transaction:
- *   [0]    result set: CALCULATED at the reviewed _version -> PUBLISHED
- *   [1]    class term gate: End-term writes TERMLOCK; Opener/Mid-term require it absent
- *   [2]    predecessor checkpoint is PUBLISHED (Mid-term, End-term)        -- optional
- *   [3]    grade rule's checkpoint weights unchanged since calculation (End-term) -- optional
- *   [...]  each paper in the basis, unchanged since calculation -> LOCKED, published_in += checkpoint
- * A mark written after calculation moved its assessment's _lastChangedAt, so
- * the transaction cannot publish numbers that no longer match the marks.
- * Returns the item index map so the caller can explain a cancellation.
- */
 export async function publish(schoolId, set, actor) {
   const ts = nowIso();
   const now = Date.now();
@@ -356,4 +339,11 @@ export async function putReportCard(schoolId, card) {
   };
   await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));
   return item;
+}
+
+export async function getReportCard(schoolId, termId, checkpoint, studentId) {
+  const { Item } = await ddb.send(
+    new GetCommand({ TableName: TABLE, Key: { PK: pk(schoolId), SK: sk.reportCard(termId, checkpoint, studentId) }, ConsistentRead: true })
+  );
+  return Item || null;
 }
