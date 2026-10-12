@@ -9,6 +9,9 @@ export const CHECKPOINT_TYPE = { OPENER: 'Opener', MIDTERM: 'Mid-term', ENDTERM:
 export const PREVIOUS = { OPENER: null, MIDTERM: CHECKPOINT.OPENER, ENDTERM: CHECKPOINT.MIDTERM };
 export const checkpointsUpTo = (checkpoint) => CHECKPOINTS.slice(0, CHECKPOINTS.indexOf(checkpoint) + 1);
 
+export const assessmentCheckpoint = (assessmentType) =>
+  String(assessmentType || '').toUpperCase().replace(/[^A-Z]/g, '');
+
 export const RESULT_KIND = { INTERIM: 'INTERIM', FINAL: 'FINAL' };
 export const kindOf = (checkpoint) => (checkpoint === CHECKPOINT.ENDTERM ? RESULT_KIND.FINAL : RESULT_KIND.INTERIM);
 
@@ -153,9 +156,8 @@ export function calculateCheckpoint({
 }) {
   if (!CHECKPOINTS.includes(checkpoint)) throw new Error(`Unknown checkpoint ${checkpoint}`);
   const kind = kindOf(checkpoint);
-  const type = CHECKPOINT_TYPE[checkpoint];
   const inScope = assessments
-    .filter((a) => !a._deleted && a.assessment_type === type)
+    .filter((a) => !a._deleted && assessmentCheckpoint(a.assessment_type) === checkpoint)
     .sort((a, b) => a.subject.localeCompare(b.subject) || (a.paper_no ?? 9) - (b.paper_no ?? 9)
       || a.assessment_id.localeCompare(b.assessment_id));
   const examSubjects = [...new Set(inScope.map((a) => a.subject))];

@@ -1,22 +1,34 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { dropFor } from '../offline/db.js';
+import { db, dropFor } from '../offline/db.js';
+import { useLive } from '../offline/useLive.js';
 import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
 
+/**
+ * Every user: classes, assessments, results. Attendance, report cards and model
+ * inputs: administrators and class teachers. Teachers and terms: administrators.
+ */
 const NAV = [
   { to: '/classes', label: 'Classes' },
   { to: '/assessments', label: 'Assessments' },
   { to: '/results', label: 'Results' },
+  { to: '/attendance', label: 'Attendance', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/report-cards', label: 'Report cards', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/model-inputs', label: 'Model inputs', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
+  { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },
 ];
 
 export default function Layout() {
-  const { actor, signOut } = useAuth();
+  const { actor, isAdmin, signOut } = useAuth();
+  const classes = useLive(() => db().classes.toArray(), [], []);
+  const isClassTeacher = classes.some((c) => c.is_class_teacher);
   const navigate = useNavigate();
 
-  useEffect(() => startSync(actor), [actor.sub]); 
-  
+  useEffect(() => startSync(actor), [actor.sub]);
+
   async function logOut(e) {
     e.preventDefault();
     const { pending, failed, held } = await getState();
@@ -39,7 +51,7 @@ export default function Layout() {
           <div className="brand-sub">Exam and Gradebook System</div>
         </div>
         <nav className="nav">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.show || item.show({ isAdmin, isClassTeacher })).map((item) => (
             <NavLink key={item.to} to={item.to}>
               {item.label}
             </NavLink>
@@ -55,7 +67,7 @@ export default function Layout() {
           <SyncBar />
           <div className="who">
             <span>{actor?.name}</span>
-            <span>{actor?.groups?.join(', ')}</span>
+            <span>{isAdmin ? 'Admin' : isClassTeacher ? 'Teacher · class teacher' : 'Teacher'}</span>
           </div>
         </header>
         <main className="page">

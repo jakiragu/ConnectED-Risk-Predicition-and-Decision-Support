@@ -1,8 +1,9 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
+import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import { SFNClient } from '@aws-sdk/client-sfn';
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 
 const local = Boolean(process.env.DDB_ENDPOINT);
 
@@ -18,29 +19,22 @@ const base = {
     : {}),
 };
 
+const at = (endpoint) => (endpoint ? { endpoint } : {});
+
 export const ddb = DynamoDBDocumentClient.from(
-  new DynamoDBClient({
-    ...base,
-    ...(process.env.DDB_ENDPOINT ? { endpoint: process.env.DDB_ENDPOINT } : {}),
-  }),
+  new DynamoDBClient({ ...base, ...at(process.env.DDB_ENDPOINT) }),
   { marshallOptions: { removeUndefinedValues: true } }
 );
 
 export const s3 = new S3Client({
   ...base,
-  ...(process.env.S3_ENDPOINT
-    ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true }
-    : {}),
+  ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true } : {}),
 });
 
-export const eventBridge = new EventBridgeClient({
-  ...base,
-  ...(process.env.EVENTS_ENDPOINT ? { endpoint: process.env.EVENTS_ENDPOINT } : {}),
-});
+export const eventBridge = new EventBridgeClient({ ...base, ...at(process.env.EVENTS_ENDPOINT) });
 
-export const sfn = new SFNClient({
-  ...base,
-  ...(process.env.SFN_ENDPOINT ? { endpoint: process.env.SFN_ENDPOINT } : {}),
-});
+export const sfn = new SFNClient({ ...base, ...at(process.env.SFN_ENDPOINT) });
+
+export const cognito = new CognitoIdentityProviderClient({ ...base, ...at(process.env.COGNITO_ENDPOINT) });
 
 export const isLocal = local;

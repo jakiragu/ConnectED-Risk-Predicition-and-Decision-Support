@@ -1,46 +1,38 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { completeNewPassword, signInWithPassword } from '../auth/cognito.jsx';
 import { Field } from '../components/Field.jsx';
-
-/**
- * Sign-in.
- *
- * Locally there is no password check: local/seed.js creates the teachers and
- * this form exchanges an email for a token via the dev endpoint. On AWS the
- * body of submit() becomes a single signIn() call against Amplify Auth and the
- * rest of the screen is untouched.
- *
- * Seeded accounts:
- *   jane.doe@saintinnocent.ac.ke    Teacher, 4 classes
- *   zama.nile@saintinnocent.ac.ke   Head Teacher, all classes
- *   john.man@saintinnocent.ac.ke    Admin, all classes
- */
-const ENDPOINT = import.meta.env.VITE_GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
-const DEV_TOKEN_URL = ENDPOINT.replace('/graphql', '/dev/token');
 
 export default function SignIn() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('jane.doe@saintinnocent.ac.ke');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [challenge, setChallenge] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  function finish(tokens) {
+    signIn(tokens);
+    navigate('/classes');
+  }
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(DEV_TOKEN_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      if (!res.ok) throw new Error('That email is not registered at this school');
-      const { token } = await res.json();
-      signIn(token);
-      navigate('/classes');
+      if (challenge) {
+        if (newPassword !== confirm) throw new Error('The two passwords do not match');
+        finish((await completeNewPassword(email.trim().toLowerCase(), challenge.session, newPassword)).tokens);
+        return;
+      }
+      const res = await signInWithPassword(email.trim().toLowerCase(), password);
+      if (res.challenge) setChallenge(res);
+      else finish(res.tokens);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -58,34 +50,36 @@ export default function SignIn() {
 
       <form className="card form-card" onSubmit={submit} style={{ marginTop: 0 }}>
         <div className="stack">
-          <h2>Log in to continue.</h2>
+          <h2>{challenge ? 'Choose your own password.' : 'Fill out the following form to log in.'}</h2>
+          {error && <div className="error">{error}</div>}
 
-          <Field label="Email" htmlFor="email" error={error}>
-            <input
-              id="email"
-              type="email"
-              autoComplete="username"
-              placeholder="Enter school email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              aria-invalid={Boolean(error)}
-              required
-            />
-          </Field>
-
-          <Field label="Password" htmlFor="password" hint="Not checked in local development">
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="•••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </Field>
+          {!challenge ? (
+            <>
+              <Field label="Email" htmlFor="email">
+                <input id="email" type="email" autoComplete="username" placeholder="Enter school email address"
+                  value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </Field>
+              <Field label="Password" htmlFor="password">
+                <input id="password" type="password" autoComplete="current-password" placeholder="•••••••"
+                  value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </Field>
+            </>
+          ) : (
+            <>
+              <div className="hint">You signed in with a temporary password. Choose the password you will use from now on.</div>
+              <Field label="New password" htmlFor="new" hint="At least 8 characters, with upper and lower case, a number and a symbol">
+                <input id="new" type="password" autoComplete="new-password" value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)} required />
+              </Field>
+              <Field label="Confirm new password" htmlFor="confirm">
+                <input id="confirm" type="password" autoComplete="new-password" value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)} required />
+              </Field>
+            </>
+          )}
 
           <button className="btn" type="submit" disabled={busy}>
-            {busy ? 'Logging in' : 'Log in'}
+            {busy ? 'Please wait' : challenge ? 'Set password and log in' : 'Log in'}
           </button>
         </div>
       </form>

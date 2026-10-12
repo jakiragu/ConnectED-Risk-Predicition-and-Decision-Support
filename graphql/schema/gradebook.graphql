@@ -61,6 +61,10 @@ type Score {
   _deleted: Boolean!
 }
 
+enum Role { Admin Teacher }
+enum PersonStatus { ACTIVE INACTIVE }
+enum ClassStatus { CURRENT PAST }
+
 type Student {
   student_id: ID!
   school_id: ID!
@@ -69,6 +73,7 @@ type Student {
   admission_no: String!
   class_id: ID
   status: String
+  _version: Int
 }
 
 type Class {
@@ -79,15 +84,87 @@ type Class {
   stream: String!
   year: Int
   status: String
+  class_teacher_id: ID
+  class_teacher_name: String      # listSchoolClasses only
+  student_count: Int              # listSchoolClasses only
+  my_subjects: [String!]          # listMyClasses: subjects this user may create papers and enter marks for
+  is_class_teacher: Boolean       # listMyClasses: this user is the class teacher
+  _version: Int
+}
+
+type Assignment {
+  class_id: ID!
+  subject: String!
+}
+
+type Teacher {
+  teacher_id: ID!                 # the Cognito sub
+  school_id: ID!
+  email: String!
+  first_name: String!
+  last_name: String!
+  role: Role!
+  status: PersonStatus!
+  assignments: [Assignment!]!     # (class, subject) pairs this teacher teaches
+  class_teacher_of: ID            # at most one class
+  created_at: AWSDateTime
+  updated_at: AWSDateTime
+  _version: Int!
+}
+
+type TeacherAccount {
+  teacher: Teacher!
+  temporary_password: String      # shown once; the teacher chooses their own at first sign-in
+}
+
+type ReportCardEntry {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  student_status: String!
+  checkpoint: Checkpoint!
+  kind: String                    # OFFICIAL | PROVISIONAL
+  available: Boolean!
+  generated_at: AWSDateTime
+}
+
+type ReportCardDownload {
+  url: String!                    # pre-signed; valid for five minutes
+  file_name: String!
+  expires_at: AWSDateTime!
 }
 
 type Term {
   term_id: ID!
   school_id: ID!
   name: String!
+  academic_year: Int           # the terms of one school year share it
+  term_number: Int             # 1, 2 or 3 within the school year
   start_date: AWSDate
+  mid_term_date: AWSDate       # last day of the first attendance period
   end_date: AWSDate
-  status: String
+  closures: [Closure!]         # half-term breaks, public holidays
+  status: String               # PAST | CURRENT | UPCOMING, from the dates
+  periods: [AttendancePeriod!] # the two attendance periods and their school days
+  school_days: Int
+  _version: Int
+}
+
+type Closure {
+  from: AWSDate!
+  to: AWSDate!
+  label: String
+}
+
+enum AttendancePeriodName { MIDTERM ENDTERM }
+
+type AttendancePeriod {
+  period: AttendancePeriodName!
+  label: String!
+  from: AWSDate!
+  to: AWSDate!
+  school_days: Int!            # Monday-Friday, less closures
 }
 
 type Connection_Assessment {
@@ -256,7 +333,268 @@ type ClassOutcome {
   result_set: ResultSet
 }
 
+# --------------------------------------------------------------- attendance
+
+type AttendanceEntry {
+  days_attended: Int
+  days_excused: Int
+  days_absent: Int             # school days - attended - excused
+  percentage: Float            # attended / (school days - excused) * 100
+  recorded_by_name: String
+  recorded_at: AWSDateTime
+  _version: Int!
+}
+
+type StudentAttendanceRow {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  entry: AttendanceEntry       # null: not entered yet
+  year_to_date: Float          # from the first day of the school year to the end of this period
+  year_to_date_missing: Int!   # periods of the year so far with no entry
+}
+
+type ClassAttendance {
+  class_id: ID!
+  class_name: String!
+  term_id: ID!
+  term_name: String!
+  academic_year: Int
+  period: AttendancePeriodName!
+  period_label: String!
+  from: AWSDate!
+  to: AWSDate!
+  school_days: Int!
+  locked: Boolean!             # End of term published for this class
+  can_edit: Boolean!
+  students: [StudentAttendanceRow!]!
+}
+
+type AttendanceEntryResult {
+  student_id: ID!
+  outcome: ItemOutcome!
+  reason: String
+  entry: AttendanceEntry
+}
+
+type SubmitAttendanceResult {
+  accepted: Int!
+  rejected: Int!
+  conflicted: Int!
+  results: [AttendanceEntryResult!]!
+}
+
+# ------------------------------------------------------------ model inputs
+
+type FeaturePoint {
+  point: String!               # T1M | T1F | T2M | T2F | T3M
+  columns: [String!]!          # exactly the training snapshot's feature columns, in order
+}
+
+type SubjectMapping {
+  subject: String!
+  model_subject: String!
+}
+
+type FeatureContract {
+  points: [FeaturePoint!]!
+  model_subjects: [String!]!
+  subject_map: [SubjectMapping!]!
+}
+
+type FeatureValue {
+  name: String!
+  value: Float                 # null: missing (the model treats it as missing)
+}
+
+type StudentFeatures {
+  student_id: ID!
+  academic_year: Int!
+  prediction_point: String!
+  values: [FeatureValue!]!
+  missing_scores: Int!
+  missing_attendance: Int!
+  notes: [String!]!
+  complete: Boolean!
+}
+
+type FeatureReadinessRow {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  missing_scores: Int!
+  missing_attendance: Int!
+  notes: [String!]!
+  complete: Boolean!
+}
+
+type FeatureReadiness {
+  class_id: ID!
+  class_name: String!
+  academic_year: Int!
+  prediction_point: String!
+  columns: Int!
+  complete: Int!
+  students: [FeatureReadinessRow!]!
+}
+
 # ------------------------------------------------------------------- inputs
+
+input ClosureInput {
+  from: AWSDate!
+  to: AWSDate                  # default: same as from
+  label: String
+}
+
+input CreateTermInput {
+  school_id: ID!
+  academic_year: Int!
+  term_number: Int!
+  start_date: AWSDate!
+  mid_term_date: AWSDate!
+  end_date: AWSDate!
+  closures: [ClosureInput!]
+  name: String                 # default "Term <n>, <year>"
+}
+
+input UpdateTermInput {
+  school_id: ID!
+  term_id: ID!
+  start_date: AWSDate
+  mid_term_date: AWSDate
+  end_date: AWSDate
+  closures: [ClosureInput!]    # replaces the list
+  name: String
+  _version: Int!
+}
+
+input AttendanceEntryInput {
+  student_id: ID!
+  days_attended: Int!
+  days_excused: Int!
+  _version: Int                # null => first entry; set => the version you were editing
+}
+
+input SubmitAttendanceInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  period: AttendancePeriodName!
+  entries: [AttendanceEntryInput!]!
+}
+
+input CreateTeacherInput {
+  school_id: ID!
+  email: String!
+  first_name: String!
+  last_name: String!
+  role: Role!
+}
+
+input UpdateTeacherInput {
+  school_id: ID!
+  teacher_id: ID!
+  first_name: String
+  last_name: String
+  role: Role
+  _version: Int!
+}
+
+input AssignmentInput {
+  class_id: ID!
+  subject: String!
+}
+
+input SetTeacherAssignmentsInput {
+  school_id: ID!
+  teacher_id: ID!
+  assignments: [AssignmentInput!]!   # replaces the whole list
+  _version: Int!
+}
+
+input SetClassTeacherInput {
+  school_id: ID!
+  class_id: ID!
+  teacher_id: ID                     # null removes the class teacher
+  _version: Int!                     # the class's version
+}
+
+input TeacherRefInput {
+  school_id: ID!
+  teacher_id: ID!
+  _version: Int!
+}
+
+input ResetTeacherPasswordInput {
+  school_id: ID!
+  teacher_id: ID!
+}
+
+input CreateClassInput {
+  school_id: ID!
+  grade: String!                     # e.g. Form 4
+  stream: String!                    # e.g. South
+  year: Int!
+  name: String                       # default "<grade> <stream>"
+}
+
+input UpdateClassInput {
+  school_id: ID!
+  class_id: ID!
+  grade: String
+  stream: String
+  year: Int
+  name: String
+  status: ClassStatus                # PAST archives the class
+  _version: Int!
+}
+
+input DeleteClassInput {
+  school_id: ID!
+  class_id: ID!
+  _version: Int!
+}
+
+input CreateStudentInput {
+  school_id: ID!
+  class_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String!
+}
+
+input UpdateStudentInput {
+  school_id: ID!
+  student_id: ID!
+  first_name: String
+  last_name: String
+  admission_no: String
+  _version: Int!
+}
+
+input TransferStudentInput {
+  school_id: ID!
+  student_id: ID!
+  to_class_id: ID!
+  _version: Int!
+}
+
+input SetStudentStatusInput {
+  school_id: ID!
+  student_id: ID!
+  status: PersonStatus!
+  _version: Int!
+}
+
+input ReportCardDownloadInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  student_id: ID!
+}
 
 input CreateAssessmentInput {
   assessment_id: ID          # client-generated ULID; makes a retry idempotent
@@ -370,6 +708,15 @@ type Query {
   listResultSets(school_id: ID!, class_id: ID!, term_id: ID!): [ResultSet!]!
   listCheckpointStatus(school_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ClassCheckpointStatus!]!
   getTermResults(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [TermResult!]!
+  me(school_id: ID!): Teacher!
+  listTeachers(school_id: ID!): [Teacher!]!                                  # Admin
+  listSchoolClasses(school_id: ID!): [Class!]!                               # Admin
+  listStudents(school_id: ID!, class_id: ID!, include_inactive: Boolean): [Student!]!
+  listReportCards(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ReportCardEntry!]!  # Admin | class teacher
+  getClassAttendance(school_id: ID!, class_id: ID!, term_id: ID!, period: AttendancePeriodName!): ClassAttendance!
+  getFeatureContract(school_id: ID!): FeatureContract!
+  getFeatureReadiness(school_id: ID!, class_id: ID!, prediction_point: String!, academic_year: Int): FeatureReadiness!   # Admin | class teacher
+  getStudentFeatures(school_id: ID!, student_id: ID!, prediction_point: String!, academic_year: Int): StudentFeatures!  # Admin | class teacher
 }
 
 type Mutation {
@@ -383,8 +730,27 @@ type Mutation {
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
   resolveScoreConflict(input: ResolveScoreConflictInput!): Score
   setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # any gradebook role
-  calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin | Head Teacher
+  calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin
   calculateSchoolResults(input: CalculateSchoolResultsInput!): [ClassOutcome!]!
-  publishResults(input: PublishResultsInput!): ResultSet!                  # Admin | Head Teacher; idempotent
+  publishResults(input: PublishResultsInput!): ResultSet!                  # Admin; idempotent
   publishSchoolResults(input: PublishSchoolResultsInput!): [ClassOutcome!]!
+
+  createTeacher(input: CreateTeacherInput!): TeacherAccount!                 # Admin; creates the sign-in account
+  updateTeacher(input: UpdateTeacherInput!): Teacher!                        # Admin
+  setTeacherAssignments(input: SetTeacherAssignmentsInput!): Teacher!        # Admin
+  setClassTeacher(input: SetClassTeacherInput!): Class!                      # Admin
+  deactivateTeacher(input: TeacherRefInput!): Teacher!                       # Admin
+  reactivateTeacher(input: TeacherRefInput!): Teacher!                       # Admin
+  resetTeacherPassword(input: ResetTeacherPasswordInput!): TeacherAccount!   # Admin
+  createClass(input: CreateClassInput!): Class!                              # Admin
+  updateClass(input: UpdateClassInput!): Class!                              # Admin
+  deleteClass(input: DeleteClassInput!): ID!                                 # Admin; empty classes only
+  createStudent(input: CreateStudentInput!): Student!                        # Admin | class teacher
+  updateStudent(input: UpdateStudentInput!): Student!                        # Admin | class teacher
+  transferStudent(input: TransferStudentInput!): Student!                    # Admin
+  setStudentStatus(input: SetStudentStatusInput!): Student!                  # Admin | class teacher
+  requestReportCardDownload(input: ReportCardDownloadInput!): ReportCardDownload!   # Admin | class teacher
+  createTerm(input: CreateTermInput!): Term!                                  # Admin
+  updateTerm(input: UpdateTermInput!): Term!                                  # Admin
+  submitAttendance(input: SubmitAttendanceInput!): SubmitAttendanceResult!    # Admin | class teacher
 }

@@ -24,6 +24,11 @@ services:
       MINIO_ROOT_PASSWORD: locallocal
     volumes: ["./.data/minio:/data"]
 
+  cognito:
+    image: jagregory/cognito-local:latest
+    ports: ["9229:9229"]
+    volumes: ["./.data/cognito:/app/.cognito"]
+
   stepfunctions:
     image: amazon/aws-stepfunctions-local:latest
     ports: ["8083:8083"]

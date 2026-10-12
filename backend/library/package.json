@@ -9,6 +9,9 @@
     "./ids": "./ids.js",
     "./score": "./score.js",
     "./conflict": "./conflict.js",
-    "./results": "./results.js"
+    "./results": "./results.js",
+    "./calendar": "./calendar.js",
+    "./attendance": "./attendance.js",
+    "./features": "./features.js"
   }
 }

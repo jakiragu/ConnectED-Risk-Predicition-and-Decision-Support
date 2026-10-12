@@ -172,8 +172,7 @@ td.actions { display: flex; gap: var(--space-3); align-items: center; }
   .nav { flex-direction: row; overflow-x: auto; }
   .nav a { border: none; white-space: nowrap; }
 }
-
-/* ---- results, checkpoint weights ---- */
+/* ---- ISSUE-06: results, checkpoint weights ---- */
 .segmented { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
 .seg {
   display: inline-flex; align-items: center; gap: var(--space-2);
@@ -194,3 +193,12 @@ td.actions { display: flex; gap: var(--space-3); align-items: center; }
 .weights-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
 .weight-input { display: inline-flex; align-items: center; gap: var(--space-2); }
 .weight-input input { width: 72px; }
+
+/* ---- people, classes, report cards ---- */
+.manage h3 { margin: var(--space-2) 0 0; font-size: var(--t-base); }
+.handover { display: grid; gap: var(--space-2); }
+.secret {
+  display: inline-block; margin-left: var(--space-2); padding: 2px var(--space-2);
+  border: 1px dashed var(--line); border-radius: var(--radius-sm); font-size: var(--t-base); user-select: all;
+}
+.choice-inline { display: inline-flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0; }

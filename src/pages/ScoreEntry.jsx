@@ -5,7 +5,10 @@ import { gql } from '../api/graphql.js';
 import { GET_ASSESSMENT, GET_CLASS_ROSTER, LIST_SCORES, SUBMIT_SCORES } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import { db } from '../offline/db.js';
+import { useLive } from '../offline/useLive.js';
 
+// A cell holds a number, ABS (absent) or NA (not assessed); see score.js.
 const asText = (score) => cellText(score);
 
 export default function ScoreEntry() {
@@ -15,8 +18,8 @@ export default function ScoreEntry() {
 
   const [assessment, setAssessment] = useState(null);
   const [roster, setRoster] = useState([]);
-  const [saved, setSaved] = useState({});      
-  const [drafts, setDrafts] = useState({});    
+  const [saved, setSaved] = useState({});
+  const [drafts, setDrafts] = useState({});
   const [rowErrors, setRowErrors] = useState({});
   const [rowNotes, setRowNotes] = useState({});
   const [failure, setFailure] = useState(null);
@@ -47,7 +50,10 @@ export default function ScoreEntry() {
   }, [load]);
 
   const rosterIds = useMemo(() => new Set(roster.map((s) => s.student_id)), [roster]);
-  const readOnly = assessment?.status === 'LOCKED';
+  const classes = useLive(() => db().classes.toArray(), [], []);
+  const isAdmin = actor.groups.includes('Admin');
+  const teaches = isAdmin || (classes.find((c) => c.class_id === assessment?.class_id)?.my_subjects || []).includes(assessment?.subject);
+  const readOnly = assessment?.status === 'LOCKED' || !teaches;
 
   const changed = useMemo(
     () => roster.filter((s) => (drafts[s.student_id] ?? '').trim() !== asText(saved[s.student_id])),
@@ -156,9 +162,11 @@ export default function ScoreEntry() {
       {failure && <div className="card error-card">{failure}</div>}
       {readOnly && (
         <div className="notice">
-          {(assessment.published_in || []).length
-            ? 'Published results include this paper. Marks can be viewed but not changed.'
-            : 'This assessment is locked. Marks can be viewed but not changed.'}
+          {!teaches
+            ? `You do not teach ${assessment.subject} in this class, so these marks are view-only.`
+            : (assessment.published_in || []).length
+              ? 'Published results include this paper. Marks can be viewed but not changed.'
+              : 'This assessment is locked. Marks can be viewed but not changed.'}
         </div>
       )}
       {summary && (

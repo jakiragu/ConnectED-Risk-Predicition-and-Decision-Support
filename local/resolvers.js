@@ -1,6 +1,10 @@
 import { handler as assessmentService } from '../backend/lambdas/assessment-service/handler.js';
 import { handler as gradingService } from '../backend/lambdas/grading-service/handler.js';
 import { handler as resultsService } from '../backend/lambdas/results-service/handler.js';
+import { handler as schoolService } from '../backend/lambdas/school-service/handler.js';
+import { handler as calendarService } from '../backend/lambdas/calendar-service/handler.js';
+import { handler as attendanceService } from '../backend/lambdas/attendance-service/handler.js';
+import { handler as featureService } from '../backend/lambdas/feature-service/handler.js';
 
 export const RESOLVERS = {
   Query: {
@@ -8,7 +12,7 @@ export const RESOLVERS = {
     listAssessmentsByClass: assessmentService,
     listDeletedAssessments: assessmentService,
     listMyClasses: assessmentService,
-    listTerms: assessmentService,
+    listTerms: calendarService,
     getClassRoster: assessmentService,
     listScoresByAssessment: gradingService,
     syncScores: gradingService,
@@ -16,6 +20,15 @@ export const RESOLVERS = {
     listResultSets: resultsService,
     listCheckpointStatus: resultsService,
     getTermResults: resultsService,
+    listReportCards: resultsService,
+    me: schoolService,
+    listTeachers: schoolService,
+    listSchoolClasses: schoolService,
+    listStudents: schoolService,
+    getClassAttendance: attendanceService,
+    getFeatureContract: featureService,
+    getFeatureReadiness: featureService,
+    getStudentFeatures: featureService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -32,5 +45,23 @@ export const RESOLVERS = {
     calculateSchoolResults: resultsService,
     publishResults: resultsService,
     publishSchoolResults: resultsService,
+    requestReportCardDownload: resultsService,
+    createTeacher: schoolService,
+    updateTeacher: schoolService,
+    setTeacherAssignments: schoolService,
+    setClassTeacher: schoolService,
+    deactivateTeacher: schoolService,
+    reactivateTeacher: schoolService,
+    resetTeacherPassword: schoolService,
+    createClass: schoolService,
+    updateClass: schoolService,
+    deleteClass: schoolService,
+    createStudent: schoolService,
+    updateStudent: schoolService,
+    transferStudent: schoolService,
+    setStudentStatus: schoolService,
+    createTerm: calendarService,
+    updateTerm: calendarService,
+    submitAttendance: attendanceService,
   },
 };

@@ -1,11 +1,19 @@
 import {
-  identityOf,
   assertTenant,
-  assertClassAccess,
+  assertClassRead,
+  assertClassTeacherOrAdmin,
   assertCanPublish,
   assertGradebookRole,
   canReviewResults,
+  readableClassIds,
+  visibleSubjects,
 } from '../../library/authz.js';
+import { resolveActor } from '../../library/actor.js';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { ddb, s3 } from '../../library/client.js';
+import { TABLE, pk, sk } from '../../library/keys.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import {
@@ -15,7 +23,7 @@ import {
   CHECKPOINT,
   CHECKPOINTS,
   CHECKPOINT_LABEL,
-  CHECKPOINT_TYPE,
+  assessmentCheckpoint,
   PREVIOUS,
   SEVERITY,
   kindOf,
@@ -26,9 +34,10 @@ import * as results from '../../library/resultsRepo.js';
 import * as assessments from '../../library/assessmentRepo.js';
 import * as scores from '../../library/scoreRepo.js';
 import * as platform from '../../library/platformRepo.js';
+import * as history from '../../library/historyRepo.js';
 
 export async function handler(event) {
-  const actor = identityOf(event);
+  const actor = await resolveActor(event);
   const args = event.arguments || {};
   const input = args.input || args;
 
@@ -53,6 +62,10 @@ export async function handler(event) {
       return getGradeRule(actor, args);
     case 'setCheckpointWeights':
       return setCheckpointWeights(actor, input);
+    case 'listReportCards':
+      return listReportCards(actor, args);
+    case 'requestReportCardDownload':
+      return requestReportCardDownload(actor, input);
     default:
       throw notFound(`No handler for ${event.info.fieldName}`);
   }
@@ -84,7 +97,13 @@ async function requireTerm(schoolId, termId) {
 
 async function requireClass(actor, schoolId, classId) {
   if (!(await platform.klass(schoolId, classId))) throw notFound('Class not found');
-  assertClassAccess(actor, classId, await platform.assignments(actor.schoolId, actor.sub));
+  assertClassRead(actor, classId);
+}
+
+/** A subject teacher sees only their subjects; the class teacher and administrators see all. */
+function subjectsFor(actor, classId, subjects) {
+  const visible = visibleSubjects(actor, classId);
+  return visible === null ? subjects : subjects.filter((s) => visible.has(s));
 }
 
 const reportCount = (set) => (set.report_cards_done ? [...set.report_cards_done].length : 0);
@@ -104,7 +123,7 @@ function view(set, scope, schoolId, actor) {
     ...base,
     status: set.status,
     calculation_id: set.calculation_id,
-    subjects: set.subjects || [],
+    subjects: subjectsFor(actor, scope.classId, set.subjects || []),
     assessment_count: (set.basis || []).length,
     student_count: (set.student_ids || []).length,
     blocking: Boolean(set.blocking),
@@ -147,10 +166,9 @@ async function calculateTermResults(actor, input) {
     platform.roster(schoolId, scope.classId),
     platform.gradeRule(schoolId, scope.termId),
   ]);
-  const type = CHECKPOINT_TYPE[scope.checkpoint];
   const scoresByAssessment = new Map(
     await Promise.all(
-      live.filter((a) => a.assessment_type === type)
+      live.filter((a) => assessmentCheckpoint(a.assessment_type) === scope.checkpoint)
         .map(async (a) => [a.assessment_id, await scores.listByAssessment(schoolId, a.assessment_id)])
     )
   );
@@ -227,8 +245,27 @@ async function ensureReports(schoolId, set) {
   }
 }
 
+/**
+ * Copies the published rows into each student's history (historyRepo). Runs
+ * before ResultsPublished is sent, because consumers of the event read the
+ * history. Idempotent; a failure is retried by publishing again.
+ */
+async function ensureHistory(schoolId, set) {
+  if (history.historyWritten(set)) return { set, ok: true };
+  try {
+    const [rows, term] = await Promise.all([results.listRows(schoolId, set), platform.term(schoolId, set.term_id)]);
+    await history.writeHistory(schoolId, set, rows, term);
+    return { set: await history.markHistoryWritten(schoolId, set), ok: true };
+  } catch (e) {
+    log({ level: 'error', msg: 'Student history not written; publish again to retry', set: set.SK, err: e.message });
+    return { set, ok: false };
+  }
+}
+
 async function afterPublish(schoolId, set) {
-  const withEvent = await ensureEvent(schoolId, set);
+  const recorded = await ensureHistory(schoolId, set);
+  // The event tells consumers the history is there, so it waits for it; report cards do not.
+  const withEvent = recorded.ok ? await ensureEvent(schoolId, recorded.set) : recorded.set;
   return ensureReports(schoolId, withEvent);
 }
 
@@ -291,10 +328,6 @@ async function publishResults(actor, input) {
   return view(await afterPublish(schoolId, published), scope, schoolId, actor);
 }
 
-/**
- * School-wide action: runs the per-class operation for each selected class.
- * Each class succeeds or fails on its own; one blocked class never stops the others.
- */
 async function forClasses(actor, input, run) {
   assertTenant(actor, input.school_id);
   assertCanPublish(actor);
@@ -344,7 +377,7 @@ async function listCheckpointStatus(actor, { school_id, term_id, checkpoint }) {
   if (!CHECKPOINTS.includes(checkpoint)) throw validation('Choose a checkpoint', 'checkpoint');
   let classes = await platform.listClasses(school_id);
   if (!canReviewResults(actor)) {
-    const mine = new Set(await platform.assignments(actor.schoolId, actor.sub));
+    const mine = readableClassIds(actor);
     classes = classes.filter((c) => mine.has(c.class_id));
   }
   const sets = await results.listSetsForTerm(school_id, term_id);
@@ -373,7 +406,8 @@ async function getTermResults(actor, args) {
     student_id: r.student_id,
     checkpoint: r.checkpoint,
     kind: r.kind,
-    subjects: r.subjects,
+    subjects: subjectsFor(actor, scope.classId, r.subjects.map((x) => x.subject))
+      .map((name) => r.subjects.find((x) => x.subject === name)),
     checkpoint_average: r.checkpoint_average,
     term_average: r.term_average,
     term_grade: r.term_grade,
@@ -422,4 +456,101 @@ async function setCheckpointWeights(actor, input) {
     throw conflict('Someone else changed the checkpoint weights. Reload and try again.');
   }
   return getGradeRule(actor, { school_id: input.school_id, term_id: input.term_id });
+}
+
+// ------------------------------------------------------------ report cards
+
+const DOWNLOAD_SECONDS = 300;
+const safe = (s) => String(s ?? '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** Report cards of a published class checkpoint. Administrators and the class's class teacher only. */
+async function listReportCards(actor, args) {
+  assertTenant(actor, args.school_id);
+  const scope = scopeOf(args);
+  if (!(await platform.klass(args.school_id, scope.classId))) throw notFound('Class not found');
+  assertClassTeacherOrAdmin(actor, scope.classId);
+  const set = await results.getSet(args.school_id, scope);
+  if (set?.status !== results.STATUS.PUBLISHED) return [];
+
+  const cards = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(new QueryCommand({
+      TableName: TABLE,
+      KeyConditionExpression: 'PK = :p AND begins_with(SK, :s)',
+      FilterExpression: 'class_id = :c AND calculation_id = :k',
+      ExpressionAttributeValues: {
+        ':p': pk(args.school_id), ':s': sk.reportCardPrefix(scope.termId, scope.checkpoint),
+        ':c': scope.classId, ':k': set.calculation_id,
+      },
+      ExclusiveStartKey,
+    }));
+    cards.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  const byStudent = new Map(cards.map((c) => [c.student_id, c]));
+
+  const students = await Promise.all((set.student_ids || []).map((id) => platform.student(args.school_id, id)));
+  return students.filter(Boolean)
+    .sort((a, b) => String(a.admission_no).localeCompare(String(b.admission_no), undefined, { numeric: true }))
+    .map((st) => {
+      const card = byStudent.get(st.student_id);
+      return {
+        student_id: st.student_id,
+        admission_no: st.admission_no,
+        first_name: st.first_name,
+        last_name: st.last_name,
+        student_status: st.status || 'ACTIVE',
+        checkpoint: scope.checkpoint,
+        kind: card?.kind ?? null,
+        available: Boolean(card),
+        generated_at: card?.generated_at ?? null,
+      };
+    });
+}
+
+async function requestReportCardDownload(actor, input) {
+  assertTenant(actor, input.school_id);
+  const scope = scopeOf(input);
+  if (!(await platform.klass(input.school_id, scope.classId))) throw notFound('Class not found');
+  assertClassTeacherOrAdmin(actor, scope.classId);
+  const set = await results.getSet(input.school_id, scope);
+  if (set?.status !== results.STATUS.PUBLISHED) throw validation('These results are not published', 'checkpoint');
+  const card = await results.getReportCard(input.school_id, scope.termId, scope.checkpoint, input.student_id);
+  if (!card || card.class_id !== scope.classId || card.calculation_id !== set.calculation_id) {
+    throw notFound('This report card has not been produced yet');
+  }
+  const student = await platform.student(input.school_id, input.student_id);
+  const fileName = `${safe(student?.admission_no)}-${safe(`${student?.first_name ?? ''} ${student?.last_name ?? ''}`)}-${safe(scope.termId)}-${scope.checkpoint}.pdf`;
+
+  const url = await getSignedUrl(
+    s3,
+    new GetObjectCommand({
+      Bucket: card.s3_bucket || process.env.REPORT_BUCKET,
+      Key: card.s3_key,
+      ResponseContentDisposition: `attachment; filename="${fileName}"`,
+      ResponseContentType: 'application/pdf',
+    }),
+    { expiresIn: DOWNLOAD_SECONDS }
+  );
+  const at = new Date();
+  await ddb.send(new PutCommand({
+    TableName: TABLE,
+    Item: {
+      PK: pk(input.school_id),
+      SK: sk.reportCardDownload(ulid()),
+      entity: 'ReportCardDownload',
+      school_id: input.school_id,
+      class_id: scope.classId,
+      term_id: scope.termId,
+      checkpoint: scope.checkpoint,
+      student_id: input.student_id,
+      calculation_id: set.calculation_id,
+      s3_key: card.s3_key,
+      requested_by: actor.sub,
+      requested_at: at.toISOString(),
+    },
+  }));
+  log({ op: 'report-card-download', ...scope, student_id: input.student_id, by: actor.sub });
+  return { url, file_name: fileName, expires_at: new Date(at.getTime() + DOWNLOAD_SECONDS * 1000).toISOString() };
 }
