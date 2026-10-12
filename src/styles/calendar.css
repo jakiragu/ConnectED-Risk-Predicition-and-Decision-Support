@@ -1,0 +1,10 @@
+/* Terms, attendance and model-input screens. */
+.term-card { display: grid; gap: var(--space-3); }
+.term-dates { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-end; }
+.closure-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.period-chip { display: inline-flex; gap: var(--space-2); padding: 2px var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.attendance-table input[type='number'] { width: 5rem; }
+.row-conflict td { background: #fdf3e2; }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-1) var(--space-4); font-size: var(--t-sm); }
+.feature-grid .missing { color: var(--muted); }
+.feature-grid code { font-size: var(--t-sm); }

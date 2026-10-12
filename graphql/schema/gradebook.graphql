@@ -139,9 +139,32 @@ type Term {
   term_id: ID!
   school_id: ID!
   name: String!
+  academic_year: Int           # the terms of one school year share it
+  term_number: Int             # 1, 2 or 3 within the school year
   start_date: AWSDate
+  mid_term_date: AWSDate       # last day of the first attendance period
   end_date: AWSDate
-  status: String
+  closures: [Closure!]         # half-term breaks, public holidays
+  status: String               # PAST | CURRENT | UPCOMING, from the dates
+  periods: [AttendancePeriod!] # the two attendance periods and their school days
+  school_days: Int
+  _version: Int
+}
+
+type Closure {
+  from: AWSDate!
+  to: AWSDate!
+  label: String
+}
+
+enum AttendancePeriodName { MIDTERM ENDTERM }
+
+type AttendancePeriod {
+  period: AttendancePeriodName!
+  label: String!
+  from: AWSDate!
+  to: AWSDate!
+  school_days: Int!            # Monday-Friday, less closures
 }
 
 type Connection_Assessment {
@@ -310,7 +333,157 @@ type ClassOutcome {
   result_set: ResultSet
 }
 
+# --------------------------------------------------------------- attendance
+
+type AttendanceEntry {
+  days_attended: Int
+  days_excused: Int
+  days_absent: Int             # school days - attended - excused
+  percentage: Float            # attended / (school days - excused) * 100
+  recorded_by_name: String
+  recorded_at: AWSDateTime
+  _version: Int!
+}
+
+type StudentAttendanceRow {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  entry: AttendanceEntry       # null: not entered yet
+  year_to_date: Float          # from the first day of the school year to the end of this period
+  year_to_date_missing: Int!   # periods of the year so far with no entry
+}
+
+type ClassAttendance {
+  class_id: ID!
+  class_name: String!
+  term_id: ID!
+  term_name: String!
+  academic_year: Int
+  period: AttendancePeriodName!
+  period_label: String!
+  from: AWSDate!
+  to: AWSDate!
+  school_days: Int!
+  locked: Boolean!             # End of term published for this class
+  can_edit: Boolean!
+  students: [StudentAttendanceRow!]!
+}
+
+type AttendanceEntryResult {
+  student_id: ID!
+  outcome: ItemOutcome!
+  reason: String
+  entry: AttendanceEntry
+}
+
+type SubmitAttendanceResult {
+  accepted: Int!
+  rejected: Int!
+  conflicted: Int!
+  results: [AttendanceEntryResult!]!
+}
+
+# ------------------------------------------------------------ model inputs
+
+type FeaturePoint {
+  point: String!               # T1M | T1F | T2M | T2F | T3M
+  columns: [String!]!          # exactly the training snapshot's feature columns, in order
+}
+
+type SubjectMapping {
+  subject: String!
+  model_subject: String!
+}
+
+type FeatureContract {
+  points: [FeaturePoint!]!
+  model_subjects: [String!]!
+  subject_map: [SubjectMapping!]!
+}
+
+type FeatureValue {
+  name: String!
+  value: Float                 # null: missing (the model treats it as missing)
+}
+
+type StudentFeatures {
+  student_id: ID!
+  academic_year: Int!
+  prediction_point: String!
+  values: [FeatureValue!]!
+  missing_scores: Int!
+  missing_attendance: Int!
+  notes: [String!]!
+  complete: Boolean!
+}
+
+type FeatureReadinessRow {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  missing_scores: Int!
+  missing_attendance: Int!
+  notes: [String!]!
+  complete: Boolean!
+}
+
+type FeatureReadiness {
+  class_id: ID!
+  class_name: String!
+  academic_year: Int!
+  prediction_point: String!
+  columns: Int!
+  complete: Int!
+  students: [FeatureReadinessRow!]!
+}
+
 # ------------------------------------------------------------------- inputs
+
+input ClosureInput {
+  from: AWSDate!
+  to: AWSDate                  # default: same as from
+  label: String
+}
+
+input CreateTermInput {
+  school_id: ID!
+  academic_year: Int!
+  term_number: Int!
+  start_date: AWSDate!
+  mid_term_date: AWSDate!
+  end_date: AWSDate!
+  closures: [ClosureInput!]
+  name: String                 # default "Term <n>, <year>"
+}
+
+input UpdateTermInput {
+  school_id: ID!
+  term_id: ID!
+  start_date: AWSDate
+  mid_term_date: AWSDate
+  end_date: AWSDate
+  closures: [ClosureInput!]    # replaces the list
+  name: String
+  _version: Int!
+}
+
+input AttendanceEntryInput {
+  student_id: ID!
+  days_attended: Int!
+  days_excused: Int!
+  _version: Int                # null => first entry; set => the version you were editing
+}
+
+input SubmitAttendanceInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  period: AttendancePeriodName!
+  entries: [AttendanceEntryInput!]!
+}
 
 input CreateTeacherInput {
   school_id: ID!
@@ -540,6 +713,10 @@ type Query {
   listSchoolClasses(school_id: ID!): [Class!]!                               # Admin
   listStudents(school_id: ID!, class_id: ID!, include_inactive: Boolean): [Student!]!
   listReportCards(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ReportCardEntry!]!  # Admin | class teacher
+  getClassAttendance(school_id: ID!, class_id: ID!, term_id: ID!, period: AttendancePeriodName!): ClassAttendance!
+  getFeatureContract(school_id: ID!): FeatureContract!
+  getFeatureReadiness(school_id: ID!, class_id: ID!, prediction_point: String!, academic_year: Int): FeatureReadiness!   # Admin | class teacher
+  getStudentFeatures(school_id: ID!, student_id: ID!, prediction_point: String!, academic_year: Int): StudentFeatures!  # Admin | class teacher
 }
 
 type Mutation {
@@ -573,4 +750,7 @@ type Mutation {
   transferStudent(input: TransferStudentInput!): Student!                    # Admin
   setStudentStatus(input: SetStudentStatusInput!): Student!                  # Admin | class teacher
   requestReportCardDownload(input: ReportCardDownloadInput!): ReportCardDownload!   # Admin | class teacher
+  createTerm(input: CreateTermInput!): Term!                                  # Admin
+  updateTerm(input: UpdateTermInput!): Term!                                  # Admin
+  submitAttendance(input: SubmitAttendanceInput!): SubmitAttendanceResult!    # Admin | class teacher
 }

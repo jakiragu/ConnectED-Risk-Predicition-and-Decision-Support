@@ -38,6 +38,12 @@ export const sk = {
   reportCard: (termId, checkpoint, studentId) => `REPORTCARD#${termId}#${checkpoint}#${studentId}`,
   reportCardPrefix: (termId, checkpoint) => `REPORTCARD#${termId}#${checkpoint}#`,
   reportCardDownload: (ulid) => `RCDOWNLOAD#${ulid}`,
+  // A student's published result at one checkpoint, kept per class so a transfer loses nothing.
+  studentResult: (studentId, termId, checkpoint, classId) => `STUDENTRESULT#${studentId}#${termId}#${checkpoint}#${classId}`,
+  studentResultPrefix: (studentId) => `STUDENTRESULT#${studentId}#`,
+  // Attendance for one student in one attendance period (a term's MIDTERM or ENDTERM period).
+  attendance: (termId, period, studentId) => `ATTENDANCE#${termId}#${period}#${studentId}`,
+  attendancePeriodPrefix: (termId, period) => `ATTENDANCE#${termId}#${period}#`,
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,
@@ -51,6 +57,9 @@ export const gsi1 = {
 export const gsi2 = {
   pk: (schoolId, studentId) => `SCHOOL#${schoolId}#STUDENT#${studentId}`,
   score: (termId, assessmentId) => `TERM#${termId}#SCORE#${assessmentId}`,
+  // A student's attendance across classes, ordered through the school year.
+  attendance: (academicYear, termNumber, period) => `ATT#${academicYear}#${termNumber}#${period}`,
+  attendanceYearPrefix: (academicYear) => `ATT#${academicYear}#`,
 };
 
 export const gsi3 = {

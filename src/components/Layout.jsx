@@ -6,13 +6,19 @@ import { useLive } from '../offline/useLive.js';
 import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
 
-/** Every user: classes, assessments, results. Report cards: Admin and class teachers. Teachers page: Admin. */
+/**
+ * Every user: classes, assessments, results. Attendance, report cards and model
+ * inputs: administrators and class teachers. Teachers and terms: administrators.
+ */
 const NAV = [
   { to: '/classes', label: 'Classes' },
   { to: '/assessments', label: 'Assessments' },
   { to: '/results', label: 'Results' },
+  { to: '/attendance', label: 'Attendance', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/report-cards', label: 'Report cards', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/model-inputs', label: 'Model inputs', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
+  { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },
 ];
 
 export default function Layout() {

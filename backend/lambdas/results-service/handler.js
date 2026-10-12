@@ -23,7 +23,7 @@ import {
   CHECKPOINT,
   CHECKPOINTS,
   CHECKPOINT_LABEL,
-  CHECKPOINT_TYPE,
+  assessmentCheckpoint,
   PREVIOUS,
   SEVERITY,
   kindOf,
@@ -34,6 +34,7 @@ import * as results from '../../library/resultsRepo.js';
 import * as assessments from '../../library/assessmentRepo.js';
 import * as scores from '../../library/scoreRepo.js';
 import * as platform from '../../library/platformRepo.js';
+import * as history from '../../library/historyRepo.js';
 
 export async function handler(event) {
   const actor = await resolveActor(event);
@@ -165,10 +166,9 @@ async function calculateTermResults(actor, input) {
     platform.roster(schoolId, scope.classId),
     platform.gradeRule(schoolId, scope.termId),
   ]);
-  const type = CHECKPOINT_TYPE[scope.checkpoint];
   const scoresByAssessment = new Map(
     await Promise.all(
-      live.filter((a) => a.assessment_type === type)
+      live.filter((a) => assessmentCheckpoint(a.assessment_type) === scope.checkpoint)
         .map(async (a) => [a.assessment_id, await scores.listByAssessment(schoolId, a.assessment_id)])
     )
   );
@@ -245,8 +245,27 @@ async function ensureReports(schoolId, set) {
   }
 }
 
+/**
+ * Copies the published rows into each student's history (historyRepo). Runs
+ * before ResultsPublished is sent, because consumers of the event read the
+ * history. Idempotent; a failure is retried by publishing again.
+ */
+async function ensureHistory(schoolId, set) {
+  if (history.historyWritten(set)) return { set, ok: true };
+  try {
+    const [rows, term] = await Promise.all([results.listRows(schoolId, set), platform.term(schoolId, set.term_id)]);
+    await history.writeHistory(schoolId, set, rows, term);
+    return { set: await history.markHistoryWritten(schoolId, set), ok: true };
+  } catch (e) {
+    log({ level: 'error', msg: 'Student history not written; publish again to retry', set: set.SK, err: e.message });
+    return { set, ok: false };
+  }
+}
+
 async function afterPublish(schoolId, set) {
-  const withEvent = await ensureEvent(schoolId, set);
+  const recorded = await ensureHistory(schoolId, set);
+  // The event tells consumers the history is there, so it waits for it; report cards do not.
+  const withEvent = recorded.ok ? await ensureEvent(schoolId, recorded.set) : recorded.set;
   return ensureReports(schoolId, withEvent);
 }
 
