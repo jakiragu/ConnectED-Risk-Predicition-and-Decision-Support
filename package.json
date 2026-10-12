@@ -10,14 +10,18 @@
     "db:reset": "node local/create-table.js --reset",
     "db:seed": "node local/seed.js --reset",
     "db:verify": "node local/verify.js",
+    "aws:setup": "node local/setup-aws.js",
     "api": "node local/server.js",
     "web": "npm run dev --workspace @connected/web",
+    "build:web": "npm run build --workspace @connected/web",
     "test": "node --test tests/*.test.js",
-    "setup": "npm run db:infra && sleep 3 && npm run db:seed && npm run db:verify"
+    "setup": "npm run db:infra && sleep 3 && npm run db:seed && npm run db:verify && npm run aws:setup"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/client-eventbridge": "^3.658.0",
     "@aws-sdk/client-s3": "^3.658.0",
+    "@aws-sdk/client-sfn": "^3.658.0",
     "@aws-sdk/lib-dynamodb": "^3.658.0",
     "dotenv": "^16.4.5",
     "graphql": "^16.9.0",

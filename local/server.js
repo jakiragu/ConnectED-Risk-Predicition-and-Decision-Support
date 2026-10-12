@@ -6,6 +6,8 @@ import { dirname, join } from 'node:path';
 import { createSchema, createYoga } from 'graphql-yoga';
 import { issueToken, verifyToken } from './token.js';
 import { RESOLVERS } from './resolvers.js';
+import { startLambdaEndpoint } from './lambda-endpoint.js';
+import { startEventBridgeEndpoint } from './eventbridge-endpoint.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const typeDefs = readFileSync(join(here, '../graphql/schema/gradebook.graphql'), 'utf8');
@@ -113,3 +115,6 @@ createServer(async (req, res) => {
 }).listen(port, () => {
   console.log(`AppSync (local) on http://localhost:${port}/graphql`);
 });
+
+startLambdaEndpoint(Number(process.env.LOCAL_LAMBDA_PORT || 4011));
+startEventBridgeEndpoint(Number(process.env.LOCAL_EVENTS_PORT || 4010));

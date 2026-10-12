@@ -1,10 +1,16 @@
-
 scalar AWSDate
 scalar AWSDateTime
 
 enum AssessmentStatus { UNRECORDED RECORDING RECORDED LOCKED }
 enum ItemOutcome { APPLIED REJECTED REVIEW CONFLICT }
 enum ScoreStatus { ACTIVE CONFLICT_REVIEW }
+enum MarkStatus { SCORED ABSENT NOT_ASSESSED }
+enum PaperMark { SCORED ABSENT NOT_ASSESSED MISSING }
+enum Checkpoint { OPENER MIDTERM ENDTERM }
+enum ResultKind { INTERIM FINAL }
+enum ResultSetStatus { NOT_CALCULATED CALCULATED PUBLISHED UNPUBLISHED }   # UNPUBLISHED: a teacher's view of a draft
+enum IssueSeverity { BLOCKING WARNING }
+enum ReportCardsStatus { PENDING RUNNING COMPLETE FAILED }
 
 type Assessment {
   assessment_id: ID!
@@ -12,8 +18,9 @@ type Assessment {
   class_id: ID!
   subject: String!
   title: String!
-  assessment_type: String!
-  weight: Float!
+  assessment_type: String!   # the checkpoint: Opener | Mid-term | End-term
+  paper_no: Int              # 1-3; unique per class + term + subject + checkpoint
+  weight: Float!             # share of this subject's checkpoint exam; papers total 100
   due_date: AWSDate
   created_at: AWSDateTime!
 
@@ -26,6 +33,7 @@ type Assessment {
   updated_by: ID
   deleted_at: AWSDateTime     # A-16: set while soft-deleted
   deleted_by: ID
+  published_in: [Checkpoint!]!
   _version: Int!
   _lastChangedAt: Float!
   _deleted: Boolean!
@@ -36,11 +44,13 @@ type Score {
   school_id: ID!
   assessment_id: ID!
   student_id: ID!
-  raw_score: Float!
+  raw_score: Float               # null when mark_status is ABSENT or NOT_ASSESSED
   normalized_score: Float
+  mark_status: MarkStatus!
   class_id: ID
-  status: ScoreStatus!            
-  conflict_with_score: Float      
+  status: ScoreStatus!
+  conflict_with_score: Float
+  conflict_with_mark_status: MarkStatus
   conflict_with_user: ID
   conflict_at: AWSDateTime
   entered_by: ID
@@ -71,6 +81,15 @@ type Class {
   status: String
 }
 
+type Term {
+  term_id: ID!
+  school_id: ID!
+  name: String!
+  start_date: AWSDate
+  end_date: AWSDate
+  status: String
+}
+
 type Connection_Assessment {
   items: [Assessment!]!
   nextToken: String
@@ -97,10 +116,147 @@ type SubmitScoresResult {
 }
 
 type SyncPage_Score {
-  items: [Score!]!          
+  items: [Score!]!
   nextToken: String
   startedAt: Float!         # pass back as lastSync next time
 }
+
+# ------------------------------------------------------------------ results
+
+type GradeBand {
+  grade: String!
+  min_score: Float!
+  max_score: Float!
+}
+
+type CheckpointWeights {
+  opener: Float
+  midterm: Float
+  endterm: Float
+}
+
+type GradeRule {
+  term_id: ID!
+  pass_mark: Float
+  missing_score_policy: String
+  bands: [GradeBand!]!
+  checkpoint_weights: CheckpointWeights
+  checkpoint_weights_version: Int!          # pass to setCheckpointWeights; stale => Conflict
+  checkpoint_weights_problems: [String!]!   # empty when the weights are valid
+  checkpoint_weights_locked: Boolean!       # End of term results are published in this term
+}
+
+type ResultIssue {
+  code: String!
+  severity: IssueSeverity!
+  message: String!
+  subject: String
+  assessment_id: ID
+  student_id: ID
+}
+
+type ResultSet {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  kind: ResultKind!
+  status: ResultSetStatus!
+  calculation_id: ID
+  subjects: [String!]!
+  assessment_count: Int!
+  student_count: Int!
+  blocking: Boolean!                      # true => cannot be published
+  issues: [ResultIssue!]!
+  calculated_at: AWSDateTime
+  calculated_by: ID
+  published_at: AWSDateTime
+  published_by: ID
+  event_status: String                    # ResultsPublished delivery: PENDING | SENT
+  report_cards_status: ReportCardsStatus
+  report_cards_generated: Int!
+  report_cards_expected: Int!
+  report_error: String
+  checkpoint_weights: CheckpointWeightsSnapshot   # End of term: the weights this calculation used
+  _version: Int                           # pass to publishResults; stale => Conflict
+}
+
+type CheckpointWeightsSnapshot {
+  OPENER: Float
+  MIDTERM: Float
+  ENDTERM: Float
+}
+
+type PaperResult {
+  assessment_id: ID!
+  title: String!
+  paper_no: Int
+  max_score: Float!
+  weight: Float!
+  mark_status: PaperMark!
+  raw_score: Float
+  percent: Float
+  contribution: Float
+}
+
+type TermComponent {
+  checkpoint: Checkpoint!
+  score: Float
+  weight: Float
+}
+
+type SubjectTermResult {
+  components: [TermComponent!]!
+  weight_applied: Float
+  term_score: Float
+  grade: String
+}
+
+type SubjectResult {
+  subject: String!
+  papers: [PaperResult!]!
+  earned: Float
+  covered: Float              # paper weight counted
+  score: Float                # this checkpoint's exam result out of 100
+  assessed_count: Int!
+  absent_count: Int!
+  not_assessed_count: Int!
+  missing_count: Int!
+  term: SubjectTermResult     # End of term only
+}
+
+type TermResult {
+  term_result_id: ID!
+  school_id: ID!
+  student_id: ID!
+  term_id: ID!
+  class_id: ID!
+  checkpoint: Checkpoint!
+  kind: ResultKind!
+  subjects: [SubjectResult!]!
+  checkpoint_average: Float   # mean of this checkpoint's subject exam results
+  term_average: Float         # End of term only
+  term_grade: String          # End of term only
+  published: Boolean!
+  published_at: AWSDateTime
+}
+
+type ClassCheckpointStatus {
+  class_id: ID!
+  class_name: String!
+  result_set: ResultSet!
+}
+
+type ClassOutcome {
+  class_id: ID!
+  class_name: String!
+  ok: Boolean!
+  error_type: String
+  message: String
+  result_set: ResultSet
+}
+
+# ------------------------------------------------------------------- inputs
 
 input CreateAssessmentInput {
   assessment_id: ID          # client-generated ULID; makes a retry idempotent
@@ -110,6 +266,7 @@ input CreateAssessmentInput {
   subject: String!
   title: String!
   assessment_type: String!
+  paper_no: Int!
   weight: Float!
   max_score: Float!
   due_date: AWSDate
@@ -120,6 +277,7 @@ input UpdateAssessmentInput {
   school_id: ID!
   title: String
   assessment_type: String
+  paper_no: Int
   weight: Float
   max_score: Float
   due_date: AWSDate
@@ -134,7 +292,8 @@ input DeleteAssessmentInput {
 
 input ScoreEntryInput {
   student_id: ID!
-  raw_score: Float           # null clears an existing mark
+  raw_score: Float           # null clears an existing mark (unless mark_status is ABSENT / NOT_ASSESSED)
+  mark_status: MarkStatus    # default SCORED
   _version: Int              # null => new mark; set => the version you were editing
 }
 
@@ -149,7 +308,51 @@ input ResolveScoreConflictInput {
   assessment_id: ID!
   student_id: ID!
   chosen_raw_score: Float    # null clears the mark
+  chosen_mark_status: MarkStatus
   _version: Int!
+}
+
+input CalculateTermResultsInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+}
+
+input CalculateSchoolResultsInput {
+  school_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  class_ids: [ID!]           # empty or null => every class
+}
+
+input PublishResultsInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  _version: Int!             # the ResultSet version that was reviewed
+}
+
+input PublishClassInput {
+  class_id: ID!
+  _version: Int!
+}
+
+input PublishSchoolResultsInput {
+  school_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  classes: [PublishClassInput!]!
+}
+
+input SetCheckpointWeightsInput {
+  school_id: ID!
+  term_id: ID!
+  opener: Float!
+  midterm: Float!
+  endterm: Float!
+  _version: Int!             # GradeRule.checkpoint_weights_version you were editing
 }
 
 type Query {
@@ -159,19 +362,29 @@ type Query {
   ): Connection_Assessment!
   listDeletedAssessments(school_id: ID!, class_id: ID!, term_id: ID!): [Assessment!]!
   listMyClasses(school_id: ID!): [Class!]!
+  listTerms(school_id: ID!): [Term!]!
   getClassRoster(school_id: ID!, class_id: ID!): [Student!]!
   listScoresByAssessment(school_id: ID!, assessment_id: ID!): Connection_Score!
   syncScores(school_id: ID!, class_id: ID!, lastSync: Float, limit: Int, nextToken: String): SyncPage_Score!
+  getGradeRule(school_id: ID!, term_id: ID!): GradeRule
+  listResultSets(school_id: ID!, class_id: ID!, term_id: ID!): [ResultSet!]!
+  listCheckpointStatus(school_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ClassCheckpointStatus!]!
+  getTermResults(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [TermResult!]!
 }
 
 type Mutation {
   createAssessment(input: CreateAssessmentInput!): Assessment
   updateAssessment(input: UpdateAssessmentInput!): Assessment
   lockAssessment(school_id: ID!, assessment_id: ID!): Assessment
-  unlockAssessment(school_id: ID!, assessment_id: ID!): Assessment   #  admin, before results are published
-  deleteAssessment(input: DeleteAssessmentInput!): ID!         # hard delete, befor marks are entered
-  softDeleteAssessment(input: DeleteAssessmentInput!): ID!     # sof delte by admin, cascades to marks
-  restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores delted assessment and marks
+  unlockAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin, before results are published
+  deleteAssessment(input: DeleteAssessmentInput!): ID!         # hard delete, before marks are entered
+  softDeleteAssessment(input: DeleteAssessmentInput!): ID!     # soft delete by admin, cascades to marks
+  restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores a deleted assessment and marks
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
-  resolveScoreConflict(input: ResolveScoreConflictInput!): Score   
+  resolveScoreConflict(input: ResolveScoreConflictInput!): Score
+  setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # any gradebook role
+  calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin | Head Teacher
+  calculateSchoolResults(input: CalculateSchoolResultsInput!): [ClassOutcome!]!
+  publishResults(input: PublishResultsInput!): ResultSet!                  # Admin | Head Teacher; idempotent
+  publishSchoolResults(input: PublishSchoolResultsInput!): [ClassOutcome!]!
 }

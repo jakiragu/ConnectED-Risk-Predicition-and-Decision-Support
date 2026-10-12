@@ -1,6 +1,8 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SFNClient } from '@aws-sdk/client-sfn';
 
 const local = Boolean(process.env.DDB_ENDPOINT);
 
@@ -29,6 +31,16 @@ export const s3 = new S3Client({
   ...(process.env.S3_ENDPOINT
     ? { endpoint: process.env.S3_ENDPOINT, forcePathStyle: true }
     : {}),
+});
+
+export const eventBridge = new EventBridgeClient({
+  ...base,
+  ...(process.env.EVENTS_ENDPOINT ? { endpoint: process.env.EVENTS_ENDPOINT } : {}),
+});
+
+export const sfn = new SFNClient({
+  ...base,
+  ...(process.env.SFN_ENDPOINT ? { endpoint: process.env.SFN_ENDPOINT } : {}),
 });
 
 export const isLocal = local;

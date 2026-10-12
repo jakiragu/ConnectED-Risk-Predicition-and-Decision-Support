@@ -9,23 +9,28 @@ import {
   SOFT_DELETE_ASSESSMENT,
   UNLOCK_ASSESSMENT,
 } from '../api/operations.js';
-import { weightRemaining } from '@gradebook/domain/assessment';
+import { examTotals, TOTAL_WEIGHT } from '@gradebook/domain/assessment';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import CheckpointWeights from '../components/CheckpointWeights.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { watchClass } from '../offline/syncEngine.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
+import { useTerms } from '../offline/useTerms.js';
 
-const TERM_ID = import.meta.env.VITE_TERM_ID || 'term_2026_2';
+const TYPE_ORDER = { Opener: 0, 'Mid-term': 1, 'End-term': 2 };
 
 export default function Assessments() {
   const { actor } = useAuth();
   const { online } = useSync();
   const [params, setParams] = useSearchParams();
   const classId = params.get('class') || '';
+  const { terms, defaultTermId } = useTerms(actor.schoolId);
+  const termId = params.get('term') || defaultTermId;
+  const go = (next) => setParams({ class: classId, term: termId, ...next });
 
   const [deleted, setDeleted] = useState([]);
   const [error, setError] = useState(null);
@@ -35,8 +40,8 @@ export default function Assessments() {
 
   const classes = useLive(() => db().classes.toArray(), [], []);
   const assessments = useLive(
-    () => (classId ? db().assessments.where('[class_id+term_id]').equals([classId, TERM_ID]).toArray() : []),
-    [classId],
+    () => (classId && termId ? db().assessments.where('[class_id+term_id]').equals([classId, termId]).toArray() : []),
+    [classId, termId],
     null
   );
 
@@ -45,23 +50,23 @@ export default function Assessments() {
   }, [actor.schoolId]);
 
   useEffect(() => {
-    if (!classId && classes.length) setParams({ class: classes[0].class_id }, { replace: true });
-  }, [classId, classes, setParams]);
+    if (!classId && classes.length) setParams({ class: classes[0].class_id, term: termId }, { replace: true });
+  }, [classId, classes, termId, setParams]);
 
   const refresh = useCallback(async () => {
-    if (!classId) return;
-    await repository.loadAssessments(actor.schoolId, classId, TERM_ID);
+    if (!classId || !termId) return;
+    await repository.loadAssessments(actor.schoolId, classId, termId);
     if (isAdmin && online) {
-      const res = await gql(LIST_DELETED_ASSESSMENTS, { school_id: actor.schoolId, class_id: classId, term_id: TERM_ID });
+      const res = await gql(LIST_DELETED_ASSESSMENTS, { school_id: actor.schoolId, class_id: classId, term_id: termId });
       setDeleted(res.listDeletedAssessments);
     }
-  }, [actor.schoolId, classId, isAdmin, online]);
+  }, [actor.schoolId, classId, termId, isAdmin, online]);
 
   useEffect(() => {
     setError(null);
     refresh().catch((e) => setError(e.message));
-    return classId ? watchClass(classId, TERM_ID) : undefined;
-  }, [classId, refresh]);
+    return classId && termId ? watchClass(classId, termId) : undefined;
+  }, [classId, termId, refresh]);
 
 
   async function run(mutation, variables) {
@@ -86,27 +91,32 @@ export default function Assessments() {
     }
   }
   function remove(a) {
-    if (window.confirm(`Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to ${a.subject}.`)) {
+    if (window.confirm(`Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to the ${a.subject} ${a.assessment_type} exam.`)) {
       run(DELETE_ASSESSMENT, ref(a));
     }
   }
   function softRemove(a) {
     const message =
       `Delete "${a.title}" and its ${a.score_count} recorded mark${a.score_count === 1 ? '' : 's'}?\n\n` +
-      `It can be restored from "Deleted assessments" below. Its ${a.weight}% goes back to ${a.subject} until then.`;
+      `It can be restored from "Deleted assessments" below. Its ${a.weight}% goes back to the ${a.subject} ${a.assessment_type} exam until then.`;
     if (window.confirm(message)) run(SOFT_DELETE_ASSESSMENT, ref(a));
   }
   const restore = (a) => run(RESTORE_ASSESSMENT, byId(a));
 
   const list = assessments || [];
   const sorted = useMemo(
-    () => [...list].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')),
+    () => [...list].sort((a, b) => a.subject.localeCompare(b.subject)
+      || (TYPE_ORDER[a.assessment_type] ?? 9) - (TYPE_ORDER[b.assessment_type] ?? 9)
+      || (a.paper_no ?? 9) - (b.paper_no ?? 9)),
     [list]
   );
-  const budgets = useMemo(() => {
-    const subjects = [...new Set(list.map((a) => a.subject))];
-    return subjects.map((s) => ({ subject: s, remaining: weightRemaining(list, s) }));
-  }, [list]);
+  // Each subject's papers in each checkpoint must total 100% before that checkpoint can be published.
+  const budgets = useMemo(
+    () => examTotals(list)
+      .sort((a, b) => a.subject.localeCompare(b.subject) || TYPE_ORDER[a.assessment_type] - TYPE_ORDER[b.assessment_type])
+      .map((t) => ({ ...t, remaining: TOTAL_WEIGHT - t.weight })),
+    [list]
+  );
 
   const className = classes.find((c) => c.class_id === classId)?.name;
 
@@ -115,25 +125,35 @@ export default function Assessments() {
       <div className="page-head">
         <h1>Assessments</h1>
         <Select
+          aria-label="Term"
+          value={termId}
+          onChange={(v) => go({ term: v })}
+          options={terms.map((t) => ({ value: t.term_id, label: t.name }))}
+          placeholder="Choose a term"
+          style={{ width: 180 }}
+        />
+        <Select
           aria-label="Class"
           value={classId}
-          onChange={(v) => setParams({ class: v })}
+          onChange={(v) => go({ class: v })}
           options={[...classes].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.class_id, label: c.name }))}
           placeholder="Choose a class"
           style={{ width: 220 }}
         />
-        <Link className="btn" to={`/assessments/new?class=${classId}`}>
+        <Link className="btn" to={`/assessments/new?class=${classId}&term=${termId}`}>
           Add assessment
         </Link>
       </div>
 
       {error && <div className="card error-card">{error}</div>}
 
+      {termId && <CheckpointWeights schoolId={actor.schoolId} termId={termId} online={online} />}
+
       {budgets.length > 0 && (
         <div className="budget-row">
           {budgets.map((b) => (
-            <span key={b.subject} className="budget">
-              {b.subject}: <b>{b.remaining}%</b> unassigned
+            <span key={`${b.subject}|${b.assessment_type}`} className={`budget ${b.remaining === 0 ? '' : 'warn'}`}>
+              {b.subject} {b.assessment_type}: {b.remaining === 0 ? <b>100% assigned</b> : <><b>{b.remaining}%</b> unassigned</>}
             </span>
           ))}
         </div>
@@ -143,16 +163,16 @@ export default function Assessments() {
         <table>
           <thead>
             <tr>
-              <th>Name</th><th>Subject</th><th>Type</th><th>Weight</th>
+              <th>Name</th><th>Subject</th><th>Checkpoint</th><th>Paper</th><th>Weight</th>
               <th>Out of</th><th>Marks</th><th>Due</th><th>Status</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
             {assessments && sorted.length === 0 && (
               <tr className="empty">
-                <td colSpan={9}>
+                <td colSpan={10}>
                   {className
-                    ? `No assessments for ${className} this term. Add one to start recording marks.`
+                    ? `No assessments for ${className} in ${terms.find((t) => t.term_id === termId)?.name || 'this term'}. Add one to start recording marks.`
                     : 'Choose a class to see its assessments.'}
                 </td>
               </tr>
@@ -162,6 +182,7 @@ export default function Assessments() {
                 <td>{a.title}</td>
                 <td>{a.subject}</td>
                 <td>{a.assessment_type}</td>
+                <td>{a.paper_no ? `Paper ${a.paper_no}` : '—'}</td>
                 <td>{a.weight}%</td>
                 <td>{a.max_score}</td>
                 <td>{a.score_count}</td>
@@ -173,18 +194,18 @@ export default function Assessments() {
                 </td>
                 <td className="actions">
                   {!a._failed && (
-                    <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}`}>
+                    <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}&term=${termId}`}>
                       {a.status === 'LOCKED' ? 'View marks' : 'Enter marks'}
                     </Link>
                   )}
                   {!a._pending && online && (
                     <>
-                      {a.status === 'LOCKED' && isAdmin && (
+                      {a.status === 'LOCKED' && isAdmin && !(a.published_in || []).length && (
                         <button type="button" className="btn link" onClick={() => unlock(a)}>Unlock</button>
                       )}
                       {a.status !== 'LOCKED' && (
                         <>
-                          <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}`}>Edit</Link>
+                          <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}&term=${termId}`}>Edit</Link>
                           {canLock && (
                             <button type="button" className="btn link" onClick={() => lock(a)}>Lock</button>
                           )}
@@ -213,7 +234,7 @@ export default function Assessments() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Subject</th><th>Weight</th><th>Marks</th><th>Deleted</th><th>Action</th>
+                  <th>Name</th><th>Subject</th><th>Checkpoint</th><th>Paper</th><th>Weight</th><th>Marks</th><th>Deleted</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,6 +242,8 @@ export default function Assessments() {
                   <tr key={a.assessment_id}>
                     <td>{a.title}</td>
                     <td>{a.subject}</td>
+                    <td>{a.assessment_type}</td>
+                    <td>{a.paper_no ? `Paper ${a.paper_no}` : '—'}</td>
                     <td>{a.weight}%</td>
                     <td>{a.score_count}</td>
                     <td>{a.deleted_at ? new Date(a.deleted_at).toLocaleString() : '—'}</td>

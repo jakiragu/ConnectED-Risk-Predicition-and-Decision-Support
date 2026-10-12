@@ -18,6 +18,7 @@ export function openFor(sub) {
   current?.close();
   current = new Dexie(nameFor(sub));
   current.version(1).stores(SCHEMA);
+  current.version(2).stores({ terms: 'term_id' }); 
   owner = sub;
   return current;
 }

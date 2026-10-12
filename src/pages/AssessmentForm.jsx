@@ -3,7 +3,10 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   validateAssessment,
   weightRemaining,
+  papersTaken,
   ASSESSMENT_TYPES,
+  SUBJECTS,
+  PAPERS,
 } from '@gradebook/domain/assessment';
 import { gql } from '../api/graphql.js';
 import { GET_ASSESSMENT, UPDATE_ASSESSMENT } from '../api/operations.js';
@@ -11,21 +14,22 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
+import { useTerms } from '../offline/useTerms.js';
 import { ulid } from '@gradebook/domain/ids';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
 
-const TERM_ID = import.meta.env.VITE_TERM_ID || 'term_2026_2';
-const SUBJECTS = ['Kiswahili', 'CRE', 'Mathematics', 'English', 'Biology'];
-
 const EMPTY = {
   title: '',
   subject: '',
-  assessment_type: 'Mid-term',
+  assessment_type: 'Opener',
+  paper_no: '',
   weight: '',
   max_score: 100,
   due_date: '',
 };
+
+const suggestedTitle = (f) => (f.subject && f.paper_no ? `${f.subject} ${f.assessment_type} Paper ${f.paper_no}` : '');
 
 export default function AssessmentForm() {
   const { actor } = useAuth();
@@ -33,16 +37,19 @@ export default function AssessmentForm() {
   const { assessmentId } = useParams();
   const [params] = useSearchParams();
   const isEdit = Boolean(assessmentId);
+  const { terms, defaultTermId } = useTerms(actor.schoolId);
 
   const [classId, setClassId] = useState(params.get('class') || '');
+  const [termId, setTermId] = useState(params.get('term') || '');
   const { online } = useSync();
   const classes = useLive(() => db().classes.toArray(), [], []);
   const siblings = useLive(
-    () => (classId ? db().assessments.where('[class_id+term_id]').equals([classId, TERM_ID]).toArray() : []),
-    [classId],
+    () => (classId && termId ? db().assessments.where('[class_id+term_id]').equals([classId, termId]).toArray() : []),
+    [classId, termId],
     []
   );
   const [form, setForm] = useState(EMPTY);
+  const [titleTouched, setTitleTouched] = useState(false);
   const [version, setVersion] = useState(null);
   const [scoreCount, setScoreCount] = useState(0);
   const [errors, setErrors] = useState({});
@@ -50,13 +57,17 @@ export default function AssessmentForm() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!termId && defaultTermId && !isEdit) setTermId(defaultTermId);
+  }, [termId, defaultTermId, isEdit]);
+
+  useEffect(() => {
     repository.loadClasses(actor.schoolId).catch((e) => setFailure(e.message));
   }, [actor.schoolId]);
 
   useEffect(() => {
-    if (!classId) return;
-    repository.loadAssessments(actor.schoolId, classId, TERM_ID).catch((e) => setFailure(e.message));
-  }, [actor.schoolId, classId]);
+    if (!classId || !termId) return;
+    repository.loadAssessments(actor.schoolId, classId, termId).catch((e) => setFailure(e.message));
+  }, [actor.schoolId, classId, termId]);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -68,12 +79,15 @@ export default function AssessmentForm() {
           return;
         }
         setClassId(a.class_id);
+        setTermId(a.term_id);
         setVersion(a._version);
         setScoreCount(a.score_count || 0);
+        setTitleTouched(true);
         setForm({
           title: a.title,
           subject: a.subject,
           assessment_type: a.assessment_type,
+          paper_no: a.paper_no ?? '',
           weight: a.weight,
           max_score: a.max_score,
           due_date: a.due_date || '',
@@ -83,11 +97,22 @@ export default function AssessmentForm() {
   }, [isEdit, assessmentId, actor.schoolId]);
 
   const remaining = useMemo(
-    () => (form.subject ? weightRemaining(siblings, form.subject, assessmentId) : null),
-    [siblings, form.subject, assessmentId]
+    () => (form.subject ? weightRemaining(siblings, form.subject, form.assessment_type, assessmentId) : null),
+    [siblings, form.subject, form.assessment_type, assessmentId]
+  );
+  const taken = useMemo(
+    () => (form.subject ? papersTaken(siblings, form.subject, form.assessment_type, assessmentId) : []),
+    [siblings, form.subject, form.assessment_type, assessmentId]
   );
 
-  const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
+  function set(key) {
+    return (value) =>
+      setForm((f) => {
+        const next = { ...f, [key]: value };
+        if (key === 'title') return next;
+        return titleTouched ? next : { ...next, title: suggestedTitle(next) };
+      });
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -100,15 +125,15 @@ export default function AssessmentForm() {
       ...form,
       assessment_id: assessmentId,
       class_id: classId,
-      term_id: TERM_ID,
+      term_id: termId,
+      paper_no: Number(form.paper_no),
       weight: Number(form.weight),
       max_score: Number(form.max_score),
       due_date: form.due_date || null,
     };
 
-    const found = validateAssessment(candidate, {
-      siblings: siblings.filter((s) => s.subject === candidate.subject),
-    });
+    const found = validateAssessment(candidate, { siblings });
+    if (!termId) found.push({ field: 'term_id', message: 'Choose a term' });
     if (found.length) {
       setErrors(Object.fromEntries(found.map((f) => [f.field, f.message])));
       return;
@@ -124,6 +149,7 @@ export default function AssessmentForm() {
             school_id: actor.schoolId,
             title: candidate.title,
             assessment_type: candidate.assessment_type,
+            paper_no: candidate.paper_no,
             weight: candidate.weight,
             max_score: candidate.max_score,
             due_date: candidate.due_date,
@@ -136,17 +162,19 @@ export default function AssessmentForm() {
             assessment_id: ulid(),
             school_id: actor.schoolId,
             class_id: classId,
-            term_id: TERM_ID,
+            term_id: termId,
             subject: candidate.subject,
             title: candidate.title,
             assessment_type: candidate.assessment_type,
+            paper_no: candidate.paper_no,
             weight: candidate.weight,
             max_score: candidate.max_score,
             due_date: candidate.due_date,
           },
-          actor);
+          actor
+        );
       }
-      navigate(`/assessments?class=${classId}`);
+      navigate(`/assessments?class=${classId}&term=${termId}`);
     } catch (err) {
       if (err.field) setErrors({ [err.field]: err.message });
       else setFailure(err.message);
@@ -166,6 +194,17 @@ export default function AssessmentForm() {
 
           {failure && <div className="error">{failure}</div>}
 
+          <Field label="Term" htmlFor="term" error={errors.term_id}>
+            <Select
+              id="term"
+              value={termId}
+              onChange={setTermId}
+              options={terms.map((t) => ({ value: t.term_id, label: t.name }))}
+              placeholder="Choose term"
+              disabled={isEdit}
+            />
+          </Field>
+
           <Field label="Class" htmlFor="class">
             <Select
               id="class"
@@ -183,13 +222,13 @@ export default function AssessmentForm() {
               id="subject"
               value={form.subject}
               onChange={set('subject')}
-              options={SUBJECTS}
+              options={isEdit && !SUBJECTS.includes(form.subject) ? [form.subject, ...SUBJECTS] : SUBJECTS}
               placeholder="Choose subject"
               disabled={isEdit}
             />
           </Field>
 
-          <Field label="Type" htmlFor="type" error={errors.assessment_type}>
+          <Field label="Checkpoint" htmlFor="type" error={errors.assessment_type}>
             <Select
               id="type"
               value={form.assessment_type}
@@ -198,12 +237,28 @@ export default function AssessmentForm() {
             />
           </Field>
 
+          {form.subject && (
+            <Field label="Paper" htmlFor="paper" error={errors.paper_no}
+              hint={taken.length ? `Already added: paper ${taken.sort().join(', ')}` : undefined}>
+              <Select
+                id="paper"
+                value={String(form.paper_no)}
+                onChange={(v) => set('paper_no')(v ? Number(v) : '')}
+                options={PAPERS.filter((p) => !taken.includes(p)).map((p) => ({ value: String(p), label: `Paper ${p}` }))}
+                placeholder="Choose paper"
+              />
+            </Field>
+          )}
+
           <Field label="Name" htmlFor="title" error={errors.title}>
             <input
               id="title"
               value={form.title}
-              placeholder="Term 2 Mid-term"
-              onChange={(e) => set('title')(e.target.value)}
+              placeholder="English Opener Paper 1"
+              onChange={(e) => {
+                setTitleTouched(true);
+                set('title')(e.target.value);
+              }}
               aria-invalid={Boolean(errors.title)}
             />
           </Field>
@@ -214,8 +269,9 @@ export default function AssessmentForm() {
             error={errors.weight}
             hint={
               remaining === null
-                ? 'How much this assessment counts towards the term result'
-                : `${remaining}% of the term weighting is still unassigned for ${form.subject}`
+                ? 'This paper\'s share of the subject\'s exam at this checkpoint'
+                : `${remaining}% of the ${form.subject} ${form.assessment_type} exam is still unassigned. ` +
+                  'Its papers must total 100%.'
             }
           >
             <input
@@ -250,7 +306,7 @@ export default function AssessmentForm() {
             />
           </Field>
 
-          <button className="btn" type="submit" disabled={saving || !classId}>
+          <button className="btn" type="submit" disabled={saving || !classId || !termId}>
             {saving ? 'Saving' : isEdit ? 'Save changes' : 'Add assessment'}
           </button>
         </div>

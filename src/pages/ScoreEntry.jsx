@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { validateEntry, normalize, isBlank } from '@gradebook/domain/score';
+import { validateEntry, normalize, isBlank, cellText, tokenStatus } from '@gradebook/domain/score';
 import { gql } from '../api/graphql.js';
 import { GET_ASSESSMENT, GET_CLASS_ROSTER, LIST_SCORES, SUBMIT_SCORES } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import StatusPill from '../components/StatusPill.jsx';
 
-const asText = (score) => (score ? String(score.raw_score) : '');
+const asText = (score) => cellText(score);
 
 export default function ScoreEntry() {
   const { assessmentId } = useParams();
@@ -86,7 +86,9 @@ export default function ScoreEntry() {
         const draft = drafts[s.student_id];
         return {
           student_id: s.student_id,
-          raw_score: isBlank(draft) ? null : Number(draft),
+          ...(tokenStatus(draft)
+            ? { raw_score: null, mark_status: tokenStatus(draft) }
+            : { raw_score: isBlank(draft) ? null : Number(draft) }),
           _version: saved[s.student_id]?._version ?? null,
         };
       });
@@ -137,20 +139,28 @@ export default function ScoreEntry() {
   return (
     <>
       <div className="page-head">
-        <Link to={`/assessments?class=${params.get('class') || assessment.class_id}`}>Back</Link>
+        <Link to={`/assessments?class=${params.get('class') || assessment.class_id}&term=${assessment.term_id}`}>Back</Link>
         <h1>{assessment.title}</h1>
         <StatusPill status={assessment.status} />
       </div>
 
       <div className="budget-row">
         <span>{assessment.subject}</span>
+        <span>{assessment.assessment_type}{assessment.paper_no ? ` paper ${assessment.paper_no}` : ''} · {assessment.weight}%</span>
         <span>Marked out of <b>{assessment.max_score}</b></span>
+        <span className="hint">Type ABS for absent, NA for not assessed</span>
         <span><b>{entered}</b> of {roster.length} entered</span>
         {changed.length > 0 && <span><b>{changed.length}</b> unsaved</span>}
       </div>
 
       {failure && <div className="card error-card">{failure}</div>}
-      {readOnly && <div className="notice">This assessment is locked. Marks can be viewed but not changed.</div>}
+      {readOnly && (
+        <div className="notice">
+          {(assessment.published_in || []).length
+            ? 'Published results include this paper. Marks can be viewed but not changed.'
+            : 'This assessment is locked. Marks can be viewed but not changed.'}
+        </div>
+      )}
       {summary && (
         <div className="notice">
           Saved {summary.accepted}
@@ -175,7 +185,7 @@ export default function ScoreEntry() {
               const err = rowErrors[s.student_id];
               const note = rowNotes[s.student_id];
               const dirty = draft.trim() !== asText(saved[s.student_id]);
-              const pct = !err && !isBlank(draft) ? normalize(Number(draft), assessment.max_score) : null;
+              const pct = !err && !isBlank(draft) && !tokenStatus(draft) ? normalize(Number(draft), assessment.max_score) : null;
               return (
                 <tr key={s.student_id} className={err ? 'row-error' : dirty ? 'row-dirty' : ''}>
                   <td>{s.admission_no}</td>
@@ -184,7 +194,7 @@ export default function ScoreEntry() {
                     <input
                       ref={(el) => (inputs.current[i] = el)}
                       className="mark-input"
-                      inputMode="decimal"
+                      inputMode="text"
                       value={draft}
                       disabled={readOnly}
                       aria-invalid={Boolean(err)}
