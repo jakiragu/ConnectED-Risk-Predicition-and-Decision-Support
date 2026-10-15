@@ -1,0 +1,15 @@
+{
+  "description": "EventBridge rules on the gradebook's bus. The deployment creates these on AWS; local/eventbridge-endpoint.js applies the same patterns locally.",
+  "rules": [
+    {
+      "name": "gradebook-results-published-risk",
+      "description": "Predict academic risk when Mid-term or End of term results are published (risk-prediction skips Term 3 End-term, the outcome).",
+      "event_pattern": {
+        "source": ["csg.gradebook"],
+        "detail-type": ["ResultsPublished"],
+        "detail": { "checkpoint_type": ["MIDTERM", "ENDTERM"] }
+      },
+      "targets": [{ "type": "lambda", "function": "risk-prediction" }]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# The Lambda Python runtime includes boto3; it is listed for local runs.
+xgboost>=2.0.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+boto3>=1.34.0

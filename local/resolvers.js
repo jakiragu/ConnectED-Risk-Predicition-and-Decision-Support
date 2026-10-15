@@ -5,6 +5,7 @@ import { handler as schoolService } from '../backend/lambdas/school-service/hand
 import { handler as calendarService } from '../backend/lambdas/calendar-service/handler.js';
 import { handler as attendanceService } from '../backend/lambdas/attendance-service/handler.js';
 import { handler as featureService } from '../backend/lambdas/feature-service/handler.js';
+import { handler as riskService } from '../backend/lambdas/risk-service/handler.js';
 
 export const RESOLVERS = {
   Query: {
@@ -29,6 +30,9 @@ export const RESOLVERS = {
     getFeatureContract: featureService,
     getFeatureReadiness: featureService,
     getStudentFeatures: featureService,
+    listRiskPredictions: riskService,
+    getRiskRun: riskService,
+    getRiskModel: riskService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -63,5 +67,6 @@ export const RESOLVERS = {
     createTerm: calendarService,
     updateTerm: calendarService,
     submitAttendance: attendanceService,
+    runRiskPredictions: riskService,
   },
 };
