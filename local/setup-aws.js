@@ -9,6 +9,7 @@ import {
 import {
   CreateGroupCommand,
   CreateUserPoolClientCommand,
+  ListGroupsCommand,
   CreateUserPoolCommand,
   ListUserPoolClientsCommand,
   ListUserPoolsCommand,
@@ -64,7 +65,10 @@ async function ensureUserPool() {
     }));
     clientId = res.UserPoolClient.ClientId;
   }
-  for (const GroupName of ROLES) {
+  // Create only the groups that are missing: cognito-local replaces an existing
+  // group (dropping its members) where Cognito would refuse.
+  const { Groups = [] } = await cognito.send(new ListGroupsCommand({ UserPoolId: poolId, Limit: 60 }));
+  for (const GroupName of ROLES.filter((r) => !Groups.some((g) => g.GroupName === r))) {
     try {
       await cognito.send(new CreateGroupCommand({ UserPoolId: poolId, GroupName }));
     } catch (e) {
@@ -75,8 +79,8 @@ async function ensureUserPool() {
   return `${poolId}, client ${clientId}, groups ${ROLES.join('/')}${changed.length ? ` (wrote ${changed.join(', ')} to .env)` : ''}`;
 }
 
-async function ensureBucket() {
-  const Bucket = process.env.REPORT_BUCKET;
+async function ensureBucket(Bucket) {
+  if (!Bucket) throw new Error('bucket name is not set in .env');
   try {
     await s3.send(new HeadBucketCommand({ Bucket }));
     return `${Bucket} exists`;
@@ -104,7 +108,13 @@ async function ensureStateMachine() {
 }
 
 let failed = 0;
-for (const [label, step] of [['Cognito user pool', ensureUserPool], ['Report bucket', ensureBucket], ['State machine', ensureStateMachine]]) {
+const steps = [
+  ['Cognito user pool', ensureUserPool],
+  ['Report bucket', () => ensureBucket(process.env.REPORT_BUCKET)],
+  ['Model bucket', () => ensureBucket(process.env.MODEL_BUCKET)],
+  ['State machine', ensureStateMachine],
+];
+for (const [label, step] of steps) {
   try {
     console.log(`OK    ${label}: ${await step()}`);
   } catch (e) {

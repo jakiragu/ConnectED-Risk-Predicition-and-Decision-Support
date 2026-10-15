@@ -4,6 +4,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { EventBridgeClient } from '@aws-sdk/client-eventbridge';
 import { SFNClient } from '@aws-sdk/client-sfn';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { LambdaClient } from '@aws-sdk/client-lambda';
 
 const local = Boolean(process.env.DDB_ENDPOINT);
 
@@ -36,5 +37,8 @@ export const eventBridge = new EventBridgeClient({ ...base, ...at(process.env.EV
 export const sfn = new SFNClient({ ...base, ...at(process.env.SFN_ENDPOINT) });
 
 export const cognito = new CognitoIdentityProviderClient({ ...base, ...at(process.env.COGNITO_ENDPOINT) });
+
+// Lambda-to-Lambda calls: the risk workflow and its scorer. LAMBDA_ENDPOINT is the local stand-in.
+export const lambda = new LambdaClient({ ...base, ...at(process.env.LAMBDA_ENDPOINT) });
 
 export const isLocal = local;

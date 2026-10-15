@@ -18,15 +18,18 @@
     "web": "npm run dev --workspace @connected/web",
     "build:web": "npm run build --workspace @connected/web",
     "test": "node --test tests/*.test.js",
-    "setup": "npm run db:infra && npm run aws:setup && npm run db:seed && npm run db:verify",
+    "setup": "npm run db:infra && sleep 3 && npm run aws:setup && npm run db:seed && npm run db:verify",
     "features:check": "node local/check-feature-contract.js",
     "features:export": "node local/export-features.js",
-    "history:backfill": "node local/backfill-history.js"
+    "history:backfill": "node local/backfill-history.js",
+    "model:package": "python ml/package_xgboost.py",
+    "model:publish": "node local/publish-model.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.658.0",
     "@aws-sdk/client-dynamodb": "^3.658.0",
     "@aws-sdk/client-eventbridge": "^3.658.0",
+    "@aws-sdk/client-lambda": "^3.658.0",
     "@aws-sdk/client-s3": "^3.658.0",
     "@aws-sdk/client-sfn": "^3.658.0",
     "@aws-sdk/lib-dynamodb": "^3.658.0",

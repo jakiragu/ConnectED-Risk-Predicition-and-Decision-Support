@@ -44,6 +44,10 @@ export const sk = {
   // Attendance for one student in one attendance period (a term's MIDTERM or ENDTERM period).
   attendance: (termId, period, studentId) => `ATTENDANCE#${termId}#${period}#${studentId}`,
   attendancePeriodPrefix: (termId, period) => `ATTENDANCE#${termId}#${period}#`,
+  // The latest risk-prediction run for a published class checkpoint, and each student's latest prediction per point.
+  riskRun: (termId, classId, checkpoint) => `RISKRUN#${termId}#${classId}#${checkpoint}`,
+  risk: (academicYear, point, studentId) => `RISK#${academicYear}#${point}#${studentId}`,
+  riskPointPrefix: (academicYear, point) => `RISK#${academicYear}#${point}#`,
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,
@@ -60,6 +64,8 @@ export const gsi2 = {
   // A student's attendance across classes, ordered through the school year.
   attendance: (academicYear, termNumber, period) => `ATT#${academicYear}#${termNumber}#${period}`,
   attendanceYearPrefix: (academicYear) => `ATT#${academicYear}#`,
+  risk: (academicYear, point) => `RISK#${academicYear}#${point}`,
+  riskYearPrefix: (academicYear) => `RISK#${academicYear}#`,
 };
 
 export const gsi3 = {
