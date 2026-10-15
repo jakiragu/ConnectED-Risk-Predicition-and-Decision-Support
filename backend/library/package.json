@@ -12,6 +12,7 @@
     "./results": "./results.js",
     "./calendar": "./calendar.js",
     "./attendance": "./attendance.js",
-    "./features": "./features.js"
+    "./features": "./features.js",
+    "./explanations": "./explanations.js"
   }
 }

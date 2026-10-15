@@ -6,7 +6,10 @@ The notebook never saved its models, and it fitted them with the snapshot's
 noise_* columns, which the gradebook does not have. This script fits the same
 XGBClassifier configuration, on the same student split, using exactly the
 feature contract's columns (ml/feature-contract.json), and writes one model per
-prediction point in XGBoost's portable JSON format plus a manifest:
+prediction point in XGBoost's portable JSON format plus a manifest. The
+manifest also records each point's global feature importance: the mean
+absolute SHAP value of every input on the held-out students, and the same per
+subject (all of a subject's checkpoints together) and for attendance.
 
     <out>/manifest.json
     <out>/T1M.json ... <out>/T3M.json
@@ -37,27 +40,42 @@ SEED = 54321
 THRESHOLD = 0.5  # the notebook's decision rule
 
 
+def group_of(column):
+    """Kiswahili for T1M_Kiswahili, Attendance for Attendance_T1M (the same rule as backend/library/explanations.js)."""
+    return "Attendance" if column.startswith("Attendance_") else column.split("_", 1)[1]
+
+
+def global_importance(model, test, features):
+    contributions = model.get_booster().predict(
+        xgboost.DMatrix(test[features].values.astype(float), feature_names=features, missing=np.nan), pred_contribs=True
+    )[:, :-1]
+    per_feature = np.abs(contributions).mean(axis=0)
+    groups = {}
+    for name in features:
+        groups.setdefault(group_of(name), []).append(features.index(name))
+    per_group = {g: float(np.abs(contributions[:, idx].sum(axis=1)).mean()) for g, idx in groups.items()}
+    return {
+        "method": "mean |SHAP| (XGBoost TreeSHAP, log-odds) on the held-out students",
+        "rows": int(len(test)),
+        "features": {name: round(float(v), 6) for name, v in zip(features, per_feature)},
+        "groups": {g: round(v, 6) for g, v in sorted(per_group.items(), key=lambda kv: -kv[1])},
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("pos_data", nargs="?", default=None, help="folder with snapshot CSVs (positional)")
-    parser.add_argument("pos_out", nargs="?", default=None, help="output folder (positional)")
-    parser.add_argument("--data", default=None, help="folder with snapshot_T1M.csv ... snapshot_T3M.csv")
-    parser.add_argument("--out", default=None, help="output folder, e.g. ml/models/xgb-notebook-v1")
+    parser.add_argument("--data", required=True, help="folder with snapshot_T1M.csv ... snapshot_T3M.csv")
+    parser.add_argument("--out", required=True, help="output folder, e.g. ml/models/xgb-notebook-v1")
     parser.add_argument("--contract", default=str(Path(__file__).with_name("feature-contract.json")))
     parser.add_argument("--version", default=None, help="model version (default: the output folder name)")
     args = parser.parse_args()
 
-    data_dir = args.data or args.pos_data
-    out_dir = args.out or args.pos_out
-    if not data_dir or not out_dir:
-        parser.error("--data and --out (or positional arguments <data> <out>) are required")
-
     contract = json.loads(Path(args.contract).read_text())["points"]
-    out = Path(out_dir)
+    out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     version = args.version or out.name
 
-    snapshots = {p: pd.read_csv(Path(data_dir) / f"snapshot_{p}.csv") for p in POINTS}
+    snapshots = {p: pd.read_csv(Path(args.data) / f"snapshot_{p}.csv") for p in POINTS}
     ids, labels = snapshots["T1M"][ID], snapshots["T1M"][TARGET]
     train_ids, test_ids = train_test_split(ids, test_size=0.20, random_state=SEED, stratify=labels)
 
@@ -106,6 +124,7 @@ def main():
                 "roc_auc": round(float(roc_auc_score(y, probability)), 4),
                 "pr_auc": round(float(average_precision_score(y, probability)), 4),
             },
+            "global_importance": global_importance(model, test, features),
         }
         m = manifest["points"][point]["metrics"]
         print(f"{point}: {len(features)} features  F1 {m['f1']:.3f}  recall {m['recall']:.3f}  ROC-AUC {m['roc_auc']:.3f}  -> {path}")

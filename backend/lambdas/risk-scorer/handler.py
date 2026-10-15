@@ -1,5 +1,6 @@
 """
-The risk scorer: model inputs in, at-risk probabilities out. Nothing else.
+The risk scorer: model inputs in; at-risk probabilities and their SHAP
+explanations out. Nothing else.
 
 It receives feature rows built by the gradebook (risk-prediction Lambda) for
 one prediction point, without names or student ids (rows carry an opaque
@@ -7,9 +8,15 @@ row_id), and returns one probability per row from the current published
 model. Decisions about students are not made here: the probability and the
 model's threshold are returned as a decision-support signal.
 
+Explanations are SHAP values from XGBoost's built-in TreeSHAP
+(pred_contribs), which gives the same values as shap.TreeExplainer on these
+models (ml/verify_shap.py checks it). They are in log-odds: the base value plus
+every feature's contribution equals the model's output before the sigmoid.
+
 Actions
   score     {prediction_point, rows: [{row_id, features: {column: number|null}}]}
-            -> {model_version, prediction_point, threshold, predictions: [{row_id, probability, at_risk}]}
+            -> {model_version, prediction_point, threshold, explainer,
+                predictions: [{row_id, probability, at_risk, base_value, contributions: {column: number}}]}
   selftest  {model_version}  load every point of that version and score sample rows
   describe  {}               the current model's manifest summary
 """
@@ -19,6 +26,8 @@ import numpy as np
 import xgboost
 
 import model_store
+
+EXPLAINER = "xgboost-treeshap"
 
 
 class InputError(Exception):
@@ -50,15 +59,26 @@ def score(event):
     model = model_store.load()
     spec = model.point(point)
     rows = event.get("rows")
-    probabilities = model.booster(point).predict(_matrix(rows, spec["features"]))
+    features = spec["features"]
+    booster = model.booster(point)
+    matrix = _matrix(rows, features)
+    probabilities = booster.predict(matrix)
+    contributions = booster.predict(matrix, pred_contribs=True)  # (rows, features + 1); the last column is the base value
     threshold = float(spec["threshold"])
     return {
         "model_version": model.version,
         "prediction_point": point,
         "threshold": threshold,
+        "explainer": EXPLAINER,
         "predictions": [
-            {"row_id": row.get("row_id"), "probability": round(float(p), 6), "at_risk": bool(p >= threshold)}
-            for row, p in zip(rows, probabilities)
+            {
+                "row_id": row.get("row_id"),
+                "probability": round(float(p), 6),
+                "at_risk": bool(p >= threshold),
+                "base_value": round(float(c[-1]), 6),
+                "contributions": {name: round(float(v), 6) for name, v in zip(features, c[:-1])},
+            }
+            for row, p, c in zip(rows, probabilities, contributions)
         ],
     }
 
@@ -92,7 +112,13 @@ def describe(_event):
         "created_at": m.get("created_at"),
         "source": m.get("source"),
         "points": [
-            {"point": p, "features": len(s["features"]), "threshold": s["threshold"], "metrics": s.get("metrics")}
+            {
+                "point": p,
+                "features": len(s["features"]),
+                "threshold": s["threshold"],
+                "metrics": s.get("metrics"),
+                "global_importance": s.get("global_importance"),
+            }
             for p, s in m["points"].items()
         ],
     }

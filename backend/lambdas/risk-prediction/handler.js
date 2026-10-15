@@ -9,7 +9,8 @@ import * as risk from '../../library/riskRepo.js';
 /**
  * Risk prediction for one published class checkpoint:
  *   ResultsPublished (Mid-term or End-term)  ->  model inputs for each student
- *   ->  the risk scorer (current published model)  ->  RiskPrediction per student
+ *   ->  the risk scorer (current published model)  ->  RiskPrediction per student,
+ *       with the SHAP explanation of each prediction
  *
  * Triggered by the EventBridge rule in infra/event-rules.json, or by an
  * administrator re-running it ({ action: 'run', ... } from the risk service).
@@ -96,7 +97,7 @@ export async function handler(event) {
         rows: batch.map((s, j) => ({ row_id: i + j, features: s.row.values })),
       });
       if (model && out.model_version !== model.model_version) throw new Error('The model changed during the run; run it again');
-      model = { model_version: out.model_version, threshold: out.threshold };
+      model = { model_version: out.model_version, threshold: out.threshold, explainer: out.explainer ?? null };
       scored.push(...out.predictions);
     }
 
@@ -119,6 +120,9 @@ export async function handler(event) {
         features: row.values,
         missing_scores: row.missing.scores.length,
         missing_attendance: row.missing.attendance.length,
+        explainer: model.explainer,
+        shap_base_value: p.base_value ?? null,
+        shap_values: p.contributions ?? null,
         predicted_at: predictedAt,
       };
     });

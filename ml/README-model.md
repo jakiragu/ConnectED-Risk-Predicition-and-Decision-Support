@@ -40,17 +40,31 @@ Missing inputs reach the model as NaN.
   "source": "what it is and how it was trained",
   "points": {
     "T1M": { "file": "T1M.json", "features": ["T1M_Mathematics", "...", "Attendance_T1M"], "threshold": 0.5,
-             "metrics": { "f1": 0.86, "recall": 0.83, "roc_auc": 0.95 } },
+             "metrics": { "f1": 0.86, "recall": 0.83, "roc_auc": 0.95 },
+             "global_importance": { "method": "mean |SHAP| ...", "rows": 1000,
+                                    "features": { "T1M_Kiswahili": 0.96, "...": 0 },
+                                    "groups": { "Kiswahili": 0.96, "Attendance": 0.78, "...": 0 } } },
     "T1F": { "...": "..." }, "T2M": { "...": "..." }, "T2F": { "...": "..." }, "T3M": { "...": "..." }
   }
 }
 ```
 
-- `model_version`: a new name for every model; a published version is never overwritten.
+- `model_version`: a new name for every model; a published version is never overwritten, not even its manifest.
 - `features`: copy them from `ml/feature-contract.json` for the point.
 - `threshold`: the probability at or above which a student is flagged at that point.
 - `sha256` per file: optional; the publish step fills it in.
 - `metrics`: optional; shown on the admin model view.
+- `global_importance`: optional; the model's global SHAP importance on held-out data, shown as
+  "What drives the model". `groups` uses the model's subject names (`Religious_Education`)
+  and `Attendance`; `package_xgboost.py` shows how it is computed.
+
+## Explanations
+
+The scorer explains every prediction with SHAP values from XGBoost's built-in
+TreeSHAP (`pred_contribs`). Any XGBoost model package gets explanations; nothing
+in the manifest is needed for them. `python ml/verify_shap.py --model <package>
+--data <csv folder>` checks that they match the `shap` library's TreeExplainer
+and add up to the model's output.
 
 `python ml/package_xgboost.py` writes a complete package. It fits the notebook's
 XGBoost configuration on the contract's columns and is the reference for the format.

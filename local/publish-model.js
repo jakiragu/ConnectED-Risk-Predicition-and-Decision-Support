@@ -122,10 +122,12 @@ if (args[0] === '--use') {
 
   const existing = await readObject(`models/${version}/manifest.json`);
   if (existing) {
+    // A published version never changes: the scorer caches it, and predictions name it.
     const theirs = JSON.parse(existing.toString('utf8'));
     const unchanged = POINT_NAMES.every((p) => theirs.points?.[p]?.sha256 === manifest.points[p].sha256);
     if (!unchanged) fail(`version ${version} is already published with different files; give the new model a new model_version`);
-    console.log(`  ${version} is already uploaded with the same files`);
+    if (!same(theirs, manifest)) fail(`version ${version} is already published with a different manifest; give it a new model_version`);
+    console.log(`  ${version} is already uploaded, identical`);
   } else {
     for (const f of files) {
       await s3.send(new PutObjectCommand({ Bucket, Key: `models/${version}/${f.file}`, Body: f.raw, ContentType: 'application/json' }));
