@@ -1,6 +1,6 @@
 # Packaging script (ml/package_xgboost.py). The scorer has its own pinned list in
 # backend/lambdas/risk-scorer/requirements.txt; keep xgboost the same in both.
-xgboost==3.4.1
-numpy==2.4.4
-pandas==3.0.2
-scikit-learn==1.8.0
+xgboost>=2.0.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+pandas>=2.0.0,<3.0.0
+scikit-learn>=1.4.0,<2.0.0

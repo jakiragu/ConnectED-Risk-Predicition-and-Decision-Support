@@ -39,18 +39,25 @@ THRESHOLD = 0.5  # the notebook's decision rule
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", required=True, help="folder with snapshot_T1M.csv ... snapshot_T3M.csv")
-    parser.add_argument("--out", required=True, help="output folder, e.g. ml/models/xgb-notebook-v1")
+    parser.add_argument("pos_data", nargs="?", default=None, help="folder with snapshot CSVs (positional)")
+    parser.add_argument("pos_out", nargs="?", default=None, help="output folder (positional)")
+    parser.add_argument("--data", default=None, help="folder with snapshot_T1M.csv ... snapshot_T3M.csv")
+    parser.add_argument("--out", default=None, help="output folder, e.g. ml/models/xgb-notebook-v1")
     parser.add_argument("--contract", default=str(Path(__file__).with_name("feature-contract.json")))
     parser.add_argument("--version", default=None, help="model version (default: the output folder name)")
     args = parser.parse_args()
 
+    data_dir = args.data or args.pos_data
+    out_dir = args.out or args.pos_out
+    if not data_dir or not out_dir:
+        parser.error("--data and --out (or positional arguments <data> <out>) are required")
+
     contract = json.loads(Path(args.contract).read_text())["points"]
-    out = Path(args.out)
+    out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     version = args.version or out.name
 
-    snapshots = {p: pd.read_csv(Path(args.data) / f"snapshot_{p}.csv") for p in POINTS}
+    snapshots = {p: pd.read_csv(Path(data_dir) / f"snapshot_{p}.csv") for p in POINTS}
     ids, labels = snapshots["T1M"][ID], snapshots["T1M"][TARGET]
     train_ids, test_ids = train_test_split(ids, test_size=0.20, random_state=SEED, stratify=labels)
 

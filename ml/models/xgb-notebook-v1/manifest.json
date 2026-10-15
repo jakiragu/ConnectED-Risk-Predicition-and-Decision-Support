@@ -1,18 +1,18 @@
 {
   "model_version": "xgb-notebook-v1",
   "framework": "xgboost",
-  "xgboost_version": "3.4.1",
+  "xgboost_version": "2.1.4",
   "format": "xgboost-json",
   "objective": "binary:logistic",
   "label": "academic_risk",
   "positive_class": 1,
   "missing_values": "null inputs are passed to XGBoost as missing (NaN)",
-  "created_at": "2026-10-14T12:41:32+00:00",
+  "created_at": "2026-10-14T18:14:47+00:00",
   "source": "riskPredictionCntd.ipynb XGBClassifier configuration, fitted on the feature contract's columns",
   "points": {
     "T1M": {
       "file": "T1M.json",
-      "sha256": "2615625d9e3e93c730c496b59a2655b3a37cdc7c67583d375ff425d5b71c010e",
+      "sha256": "0d8a71f9cfb69f4297655d86759ffadcc6a90f5c1412f938d80356dbbb468f94",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -28,17 +28,17 @@
       "threshold": 0.5,
       "metrics": {
         "test_rows": 1000,
-        "accuracy": 0.887,
-        "precision": 0.8951,
+        "accuracy": 0.885,
+        "precision": 0.8908,
         "recall": 0.8398,
-        "f1": 0.8666,
+        "f1": 0.8645,
         "roc_auc": 0.9518,
-        "pr_auc": 0.9487
+        "pr_auc": 0.9488
       }
     },
     "T1F": {
       "file": "T1F.json",
-      "sha256": "ed4ad3affdeb7c37890fcfcabf399f920d2b13b2fc9da5176db592eb0d6c91a9",
+      "sha256": "3e69f89b385a3452cce729def824987dc3fe8a5dd3f3b948cfe0b8ef83c14d07",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -64,17 +64,17 @@
       "threshold": 0.5,
       "metrics": {
         "test_rows": 1000,
-        "accuracy": 0.902,
-        "precision": 0.9045,
-        "recall": 0.8673,
-        "f1": 0.8855,
-        "roc_auc": 0.9687,
-        "pr_auc": 0.966
+        "accuracy": 0.899,
+        "precision": 0.8944,
+        "recall": 0.8719,
+        "f1": 0.883,
+        "roc_auc": 0.9675,
+        "pr_auc": 0.965
       }
     },
     "T2M": {
       "file": "T2M.json",
-      "sha256": "b53699c3953ce5d3b4de303715a627971c2ade34318a5ced3b723c2b5b849c8d",
+      "sha256": "e64df5f02b72af8a05b754c5c2c5fd9d5abe6e0ad99f5f8a3904e71aef869c32",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -110,17 +110,17 @@
       "threshold": 0.5,
       "metrics": {
         "test_rows": 1000,
-        "accuracy": 0.93,
-        "precision": 0.94,
-        "recall": 0.897,
-        "f1": 0.918,
-        "roc_auc": 0.9814,
-        "pr_auc": 0.9796
+        "accuracy": 0.931,
+        "precision": 0.936,
+        "recall": 0.9039,
+        "f1": 0.9197,
+        "roc_auc": 0.9803,
+        "pr_auc": 0.9788
       }
     },
     "T2F": {
       "file": "T2F.json",
-      "sha256": "373fca589d3432cdee84e95fc08186f077745b54683f7bb1af934a0de862ad76",
+      "sha256": "d6c72aa581b0cfff4bc8743fadb8131e089126cb4765a27ff48962a5dd61de28",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -166,17 +166,17 @@
       "threshold": 0.5,
       "metrics": {
         "test_rows": 1000,
-        "accuracy": 0.948,
-        "precision": 0.9551,
-        "recall": 0.9245,
-        "f1": 0.9395,
-        "roc_auc": 0.9887,
-        "pr_auc": 0.9876
+        "accuracy": 0.951,
+        "precision": 0.9554,
+        "recall": 0.9314,
+        "f1": 0.9432,
+        "roc_auc": 0.989,
+        "pr_auc": 0.988
       }
     },
     "T3M": {
       "file": "T3M.json",
-      "sha256": "25d9e46a3143ddd6c96b9dbdffe389dc7881ff2c4855a6092cab6b15052bd876",
+      "sha256": "aea94b18a35f2e66ed445117b1c5b114bdd9e55e68bcdff64d4f4f56c674c9c4",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -232,12 +232,12 @@
       "threshold": 0.5,
       "metrics": {
         "test_rows": 1000,
-        "accuracy": 0.969,
-        "precision": 0.9721,
-        "recall": 0.9565,
-        "f1": 0.9642,
-        "roc_auc": 0.9952,
-        "pr_auc": 0.9944
+        "accuracy": 0.968,
+        "precision": 0.9787,
+        "recall": 0.9474,
+        "f1": 0.9628,
+        "roc_auc": 0.9956,
+        "pr_auc": 0.9949
       }
     }
   }
