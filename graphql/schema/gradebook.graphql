@@ -440,7 +440,154 @@ type FeatureReadiness {
   students: [FeatureReadinessRow!]!
 }
 
+# ---------------------------------------------------------- risk prediction
+
+enum RiskRunStatus { QUEUED RUNNING COMPLETE FAILED SKIPPED }
+enum EffectDirection { RAISES LOWERS NONE }
+
+type RiskPrediction {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  class_id: ID                 # the class the prediction was made in
+  academic_year: Int!
+  prediction_point: String!    # T1M | T1F | T2M | T2F | T3M
+  probability: Float!          # the model's estimated probability of academic risk, 0-1
+  at_risk: Boolean!            # probability >= threshold: a decision-support signal, not a judgement
+  threshold: Float!
+  model_version: String!
+  missing_scores: Int!         # inputs the model received as missing
+  missing_attendance: Int!
+  run_id: ID!
+  predicted_at: AWSDateTime!
+  explained: Boolean!          # false for predictions made before explanations were added
+  top_factors: [RiskFactorSummary!]!   # the subjects / attendance that pushed hardest
+}
+
+# SHAP explanations. An effect is a push on the model's output in log-odds:
+# positive raises the estimated risk, negative lowers it. Effects are grouped per
+# subject (all its checkpoints) and attendance; share is the factor's part of all pushes.
+type RiskFactorSummary {
+  group: String!               # a subject (as the gradebook names it) or Attendance
+  label: String!
+  effect: Float!
+  direction: EffectDirection!
+  share: Float!                # 0-1
+  all_missing: Boolean!        # every input in this group was missing
+}
+
+type RiskFactorColumn {
+  name: String!                # the model input, e.g. T1M_Kiswahili
+  label: String!               # e.g. "Kiswahili, Term 1 Mid-term exam"
+  group: String!
+  value: Float                 # null: missing
+  missing: Boolean!
+  effect: Float!
+  direction: EffectDirection!
+}
+
+type RiskFactor {
+  group: String!
+  label: String!
+  effect: Float!
+  direction: EffectDirection!
+  share: Float!
+  missing_columns: Int!
+  all_missing: Boolean!
+  columns: [RiskFactorColumn!]!
+}
+
+type RiskExplanation {
+  prediction: RiskPrediction!
+  explainer: String            # xgboost-treeshap
+  explained: Boolean!
+  base_probability: Float      # the model's starting point before any input (its average output)
+  factors: [RiskFactor!]!      # largest push first
+}
+
+type ImportanceItem {
+  name: String!
+  label: String!
+  importance: Float!           # mean |SHAP|, log-odds
+}
+
+type ModelImportance {
+  method: String
+  rows: Int                    # held-out students it was measured on
+  groups: [ImportanceItem!]!
+  features: [ImportanceItem!]! # the 15 most important inputs
+}
+
+type ObservedImportance {
+  scope: String!               # CLASS | SCHOOL
+  class_id: ID
+  students: Int!
+  groups: [ImportanceItem!]!
+}
+
+type RiskImportance {
+  prediction_point: String!
+  academic_year: Int
+  model_version: String
+  model: ModelImportance       # null when the model package has no global importance
+  observed: ObservedImportance!
+}
+
+type RiskRun {
+  run_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+  prediction_point: String!
+  academic_year: Int
+  status: RiskRunStatus!
+  trigger: String              # ResultsPublished | manual
+  model_version: String
+  threshold: Float
+  students: Int
+  at_risk: Int
+  error: String
+  started_at: AWSDateTime
+  finished_at: AWSDateTime
+}
+
+type RiskModelMetrics {
+  test_rows: Int
+  accuracy: Float
+  precision: Float
+  recall: Float
+  f1: Float
+  roc_auc: Float
+  pr_auc: Float
+}
+
+type RiskModelPoint {
+  point: String!
+  features: Int!
+  threshold: Float!
+  metrics: RiskModelMetrics
+}
+
+type RiskModel {
+  available: Boolean!
+  message: String              # why the model is not available
+  model_version: String
+  framework: String
+  xgboost_version: String
+  created_at: String
+  source: String
+  points: [RiskModelPoint!]!
+}
+
 # ------------------------------------------------------------------- inputs
+
+input RunRiskPredictionsInput {
+  school_id: ID!
+  class_id: ID!
+  term_id: ID!
+  checkpoint: Checkpoint!
+}
 
 input ClosureInput {
   from: AWSDate!
@@ -717,6 +864,11 @@ type Query {
   getFeatureContract(school_id: ID!): FeatureContract!
   getFeatureReadiness(school_id: ID!, class_id: ID!, prediction_point: String!, academic_year: Int): FeatureReadiness!   # Admin | class teacher
   getStudentFeatures(school_id: ID!, student_id: ID!, prediction_point: String!, academic_year: Int): StudentFeatures!  # Admin | class teacher
+  listRiskPredictions(school_id: ID!, class_id: ID!, prediction_point: String!, academic_year: Int): [RiskPrediction!]!   # Admin | class teacher
+  getRiskRun(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): RiskRun                             # Admin | class teacher
+  getRiskExplanation(school_id: ID!, student_id: ID!, prediction_point: String!, academic_year: Int): RiskExplanation!   # Admin | class teacher
+  getRiskImportance(school_id: ID!, prediction_point: String!, academic_year: Int, class_id: ID): RiskImportance!       # Admin; class teacher with their class_id
+  getRiskModel(school_id: ID!): RiskModel!                                                                                # Admin
 }
 
 type Mutation {
@@ -753,4 +905,5 @@ type Mutation {
   createTerm(input: CreateTermInput!): Term!                                  # Admin
   updateTerm(input: UpdateTermInput!): Term!                                  # Admin
   submitAttendance(input: SubmitAttendanceInput!): SubmitAttendanceResult!    # Admin | class teacher
+  runRiskPredictions(input: RunRiskPredictionsInput!): RiskRun!               # Admin; queues a fresh run
 }
