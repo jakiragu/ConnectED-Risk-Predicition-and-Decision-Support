@@ -2,3 +2,5 @@ node_modules
 .env
 local/.data
 /frontend/react-app/dist/
+__pycache__/
+*.pyc
