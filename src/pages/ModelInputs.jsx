@@ -2,14 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { gql } from '../api/graphql.js';
 import { GET_FEATURE_READINESS, GET_STUDENT_FEATURES, LIST_TERMS_FULL } from '../api/calendarOperations.js';
-import { GET_RISK_MODEL, GET_RISK_RUN, LIST_RISK_PREDICTIONS, RUN_RISK_PREDICTIONS } from '../api/riskOperations.js';
+import {
+  GET_RISK_EXPLANATION, GET_RISK_IMPORTANCE, GET_RISK_MODEL, GET_RISK_RUN, LIST_RISK_PREDICTIONS, RUN_RISK_PREDICTIONS,
+} from '../api/riskOperations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
+import ImportanceBars from '../components/ImportanceBars.jsx';
+import RiskExplanation from '../components/RiskExplanation.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import '../styles/calendar.css';
+import '../styles/explain.css';
 
 const POINTS = [
   { value: 'T1M', label: 'Term 1 Mid-term (T1M)', term_number: 1, checkpoint: 'MIDTERM' },
@@ -23,14 +28,16 @@ const pct = (p) => `${(p * 100).toFixed(1)}%`;
 
 /**
  * What the risk model received and returned for each student at a prediction
- * point. Inputs: published Mid-term and End-term exam results per subject and
- * attendance from the start of the school year (missing values are passed as
- * missing). Output: the model's probability and whether it is at or above the
- * model's threshold. Predictions are made automatically when the checkpoint's
- * results are published; administrators can run them again, for example after
- * the model is replaced. The output is a decision-support signal, not a
- * judgement about a student. Administrators see every class; a class teacher
- * sees their own.
+ * point, and why. Inputs: published Mid-term and End-term exam results per
+ * subject and attendance from the start of the school year (missing values are
+ * passed as missing). Output: the model's probability, whether it is at or
+ * above the model's threshold, and its SHAP explanation: which subjects and
+ * attendance pushed the estimate up or down. Below the table: what drives the
+ * model overall (global importance), for the model and for this class.
+ * Predictions are made automatically when the checkpoint's results are
+ * published; administrators can run them again, for example after the model is
+ * replaced. The output is a decision-support signal, not a judgement about a
+ * student. Administrators see every class; a class teacher sees their own.
  */
 export default function ModelInputs() {
   const { actor, isAdmin } = useAuth();
@@ -52,6 +59,8 @@ export default function ModelInputs() {
   const [model, setModel] = useState(null);
   const [selected, setSelected] = useState(null);
   const [features, setFeatures] = useState(null);
+  const [explanation, setExplanation] = useState(null);
+  const [importance, setImportance] = useState(null);
   const [terms, setTerms] = useState([]);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -73,12 +82,14 @@ export default function ModelInputs() {
   const load = useCallback(async () => {
     if (!classId) return;
     const scope = { school_id: actor.schoolId, class_id: classId, prediction_point: point.value, academic_year: year };
-    const [{ getFeatureReadiness }, { listRiskPredictions }] = await Promise.all([
+    const [{ getFeatureReadiness }, { listRiskPredictions }, { getRiskImportance }] = await Promise.all([
       gql(GET_FEATURE_READINESS, scope),
       gql(LIST_RISK_PREDICTIONS, scope),
+      gql(GET_RISK_IMPORTANCE, { school_id: actor.schoolId, prediction_point: point.value, academic_year: year, class_id: classId }),
     ]);
     setReadiness(getFeatureReadiness);
     setPredictions(listRiskPredictions);
+    setImportance(getRiskImportance);
   }, [actor.schoolId, classId, point, year]);
 
   const loadRun = useCallback(async () => {
@@ -96,6 +107,8 @@ export default function ModelInputs() {
     setRun(null);
     setSelected(null);
     setFeatures(null);
+    setExplanation(null);
+    setImportance(null);
     if (online) load().catch((e) => setError(e.message));
   }, [load, online]);
 
@@ -131,8 +144,23 @@ export default function ModelInputs() {
     }
   }
 
+  async function explainFor(student) {
+    setSelected(student.student_id);
+    setFeatures(null);
+    setExplanation(null);
+    try {
+      const { getRiskExplanation } = await gql(GET_RISK_EXPLANATION, {
+        school_id: actor.schoolId, student_id: student.student_id, prediction_point: point.value, academic_year: readiness.academic_year,
+      });
+      setExplanation({ ...getRiskExplanation, name: `${student.first_name} ${student.last_name}` });
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
   async function open(student) {
     setSelected(student.student_id);
+    setExplanation(null);
     setFeatures(null);
     try {
       const { getStudentFeatures } = await gql(GET_STUDENT_FEATURES, {
@@ -162,8 +190,8 @@ export default function ModelInputs() {
       <div className="hint">
         Inputs: published Mid-term and End-term exam results for the model's nine subjects (CRE is the model's Religious
         Education) and attendance from the first day of the school year; a blank value is sent as missing. Output: the
-        model's probability of academic risk, flagged when it reaches the model's threshold. The output is a signal for the
-        class teacher to look into, not a judgement about the student.
+        model's probability of academic risk, flagged when it reaches the model's threshold, and the factors that pushed it
+        up (↑) or down (↓). The output is a signal for the class teacher to look into, not a judgement about the student.
       </div>
       {isAdmin && model && (
         <div className="hint">
@@ -200,7 +228,7 @@ export default function ModelInputs() {
               <thead>
                 <tr>
                   <th>Adm no</th><th>Student</th><th>Missing results</th><th>Missing attendance</th>
-                  <th>Model probability</th><th>Signal</th><th>Action</th>
+                  <th>Model probability</th><th>Signal</th><th>Main factors</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,7 +247,22 @@ export default function ModelInputs() {
                           <div className="hint">{p.missing_scores + p.missing_attendance} inputs were missing</div>
                         )}
                       </td>
-                      <td className="actions"><button type="button" className="btn link" onClick={() => open(s)}>View inputs</button></td>
+                      <td>
+                        {p?.explained ? (
+                          <span className="chips">
+                            {p.top_factors.map((f) => (
+                              <span key={f.group} className={`chip ${f.direction === 'RAISES' ? 'raises' : 'lowers'}`}
+                                title={`${Math.round(f.share * 100)}% of the overall effect`}>
+                                {f.all_missing ? `${f.group} (missing)` : f.group} {f.direction === 'RAISES' ? '↑' : '↓'}
+                              </span>
+                            ))}
+                          </span>
+                        ) : p ? <span className="hint">Not explained</span> : <span className="hint">—</span>}
+                      </td>
+                      <td className="actions">
+                        {p && <button type="button" className="btn link" onClick={() => explainFor(s)}>Explain</button>}
+                        <button type="button" className="btn link" onClick={() => open(s)}>View inputs</button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -229,6 +272,8 @@ export default function ModelInputs() {
           {flagged > 0 && <div className="hint">{flagged} student{flagged === 1 ? '' : 's'} flagged at {point.value}.</div>}
         </>
       )}
+
+      {explanation && <RiskExplanation explanation={explanation} name={explanation.name} />}
 
       {features && (
         <div className="card stack">
@@ -240,6 +285,40 @@ export default function ModelInputs() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {importance && (
+        <div className="card stack">
+          <h2>What drives the model at {point.value}</h2>
+          <div className="hint">
+            Mean absolute SHAP value per subject (all its checkpoints together) and for attendance: how much each one moves the
+            model's estimate on average, in either direction. It describes the model, not what causes risk.
+          </div>
+          <div className="two-col">
+            <div className="stack">
+              <h3>The model{importance.model_version ? ` (${importance.model_version})` : ''}</h3>
+              {importance.model ? (
+                <>
+                  <div className="hint">Measured on the {importance.model.rows} held-out students the model was evaluated on.</div>
+                  <ImportanceBars items={importance.model.groups} />
+                </>
+              ) : (
+                <div className="hint">This model package does not include global importance.</div>
+              )}
+            </div>
+            <div className="stack">
+              <h3>{readiness?.class_name || 'This class'}</h3>
+              <div className="hint">Over the {importance.observed.students} prediction{importance.observed.students === 1 ? '' : 's'} made for this class at {point.value}.</div>
+              <ImportanceBars items={importance.observed.groups} empty="No explained predictions yet." />
+            </div>
+          </div>
+          {importance.model?.features?.length > 0 && (
+            <details>
+              <summary>The model's most important individual inputs</summary>
+              <ImportanceBars items={importance.model.features} />
+            </details>
+          )}
         </div>
       )}
     </>

@@ -1,10 +1,36 @@
-// GraphQL documents for risk predictions and the risk model.
+// GraphQL documents for risk predictions, their explanations and the risk model.
+
+const FACTOR_SUMMARY = `top_factors { group label effect direction share all_missing }`;
+const PREDICTION_FIELDS = `
+  student_id admission_no first_name last_name class_id academic_year prediction_point probability at_risk threshold
+  model_version missing_scores missing_attendance run_id predicted_at explained ${FACTOR_SUMMARY}
+`;
 
 export const LIST_RISK_PREDICTIONS = `
   query ListRiskPredictions($school_id: ID!, $class_id: ID!, $prediction_point: String!, $academic_year: Int) {
     listRiskPredictions(school_id: $school_id, class_id: $class_id, prediction_point: $prediction_point, academic_year: $academic_year) {
-      student_id admission_no first_name last_name academic_year prediction_point probability at_risk threshold
-      model_version missing_scores missing_attendance run_id predicted_at
+      ${PREDICTION_FIELDS}
+    }
+  }`;
+
+export const GET_RISK_EXPLANATION = `
+  query GetRiskExplanation($school_id: ID!, $student_id: ID!, $prediction_point: String!, $academic_year: Int) {
+    getRiskExplanation(school_id: $school_id, student_id: $student_id, prediction_point: $prediction_point, academic_year: $academic_year) {
+      explainer explained base_probability
+      prediction { ${PREDICTION_FIELDS} }
+      factors {
+        group label effect direction share missing_columns all_missing
+        columns { name label group value missing effect direction }
+      }
+    }
+  }`;
+
+export const GET_RISK_IMPORTANCE = `
+  query GetRiskImportance($school_id: ID!, $prediction_point: String!, $academic_year: Int, $class_id: ID) {
+    getRiskImportance(school_id: $school_id, prediction_point: $prediction_point, academic_year: $academic_year, class_id: $class_id) {
+      prediction_point academic_year model_version
+      model { method rows groups { name label importance } features { name label importance } }
+      observed { scope class_id students groups { name label importance } }
     }
   }`;
 

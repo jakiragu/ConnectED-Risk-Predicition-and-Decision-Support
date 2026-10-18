@@ -32,6 +32,8 @@ export const RESOLVERS = {
     getStudentFeatures: featureService,
     listRiskPredictions: riskService,
     getRiskRun: riskService,
+    getRiskExplanation: riskService,
+    getRiskImportance: riskService,
     getRiskModel: riskService,
   },
   Mutation: {

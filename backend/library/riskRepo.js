@@ -7,8 +7,9 @@ import { TABLE, pk, sk, gsi2 } from './keys.js';
  *   RISKRUN#<term>#<class>#<checkpoint>          the latest run for a published class checkpoint
  *   RISK#<year>#<point>#<student>                a student's latest prediction at a point
  *     GSI2: <student> / RISK#<year>#<point>      a student's predictions through the year
- * A prediction keeps the exact inputs the model received, the model version and
- * the threshold, so it can be explained (SHAP) and acted on (DiCE) later.
+ * A prediction keeps the exact inputs the model received, the model version,
+ * the threshold and its SHAP values (shap_base_value + shap_values), so it can
+ * be explained now and acted on (DiCE) later.
  */
 const nowIso = () => new Date().toISOString();
 
@@ -95,6 +96,21 @@ async function queryAll(params) {
   } while (ExclusiveStartKey);
   return out;
 }
+
+export async function getPrediction(schoolId, academicYear, point, studentId) {
+  const { Item } = await ddb.send(new GetCommand({
+    TableName: TABLE, Key: { PK: pk(schoolId), SK: sk.risk(academicYear, point, studentId) }, ConsistentRead: true,
+  }));
+  return Item || null;
+}
+
+/** Every prediction at one point in a school year (all classes). */
+export const listForPoint = (schoolId, academicYear, point) =>
+  queryAll({
+    TableName: TABLE,
+    KeyConditionExpression: 'PK = :p AND begins_with(SK, :s)',
+    ExpressionAttributeValues: { ':p': pk(schoolId), ':s': sk.riskPointPrefix(academicYear, point) },
+  });
 
 /** Predictions at one point for the students who were in a class when it ran. */
 export const listForClass = (schoolId, academicYear, point, classId) =>
