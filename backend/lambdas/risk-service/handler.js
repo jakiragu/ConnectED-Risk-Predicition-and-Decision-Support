@@ -3,6 +3,7 @@ import { resolveActor } from '../../library/actor.js';
 import { todayIn } from '../../library/calendar.js';
 import { POINT_NAMES, pointFor } from '../../library/features.js';
 import { columnLabel, displayGroup, explain, importanceOver, topFactors } from '../../library/explanations.js';
+import { bestTarget, targetsOf } from '../../library/targets.js';
 import { forbidden, validation, notFound } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import { invoke, predictionFunction, scorerFunction } from '../../library/invoke.js';
@@ -10,9 +11,11 @@ import * as features from '../../library/featureStore.js';
 import * as platform from '../../library/platformRepo.js';
 import * as results from '../../library/resultsRepo.js';
 import * as risk from '../../library/riskRepo.js';
+import { getRiskDashboard, getSchoolRiskOverview, getStudentRiskProfile } from './decision.js';
 
 /**
- * Risk predictions, their SHAP explanations and the model behind them, and
+ * Risk predictions, their SHAP explanations, their counterfactual targets for
+ * the next checkpoint and the model behind them, and
  * re-running a class's predictions (for example after the model is replaced).
  * Predictions are decision-support signals for administrators and the
  * student's class teacher; they never decide anything on their own.
@@ -34,6 +37,12 @@ export async function handler(event) {
       return getRiskRun(actor, args);
     case 'getRiskModel':
       return getRiskModel(actor);
+    case 'getStudentRiskProfile':
+      return getStudentRiskProfile(actor, args);
+    case 'getRiskDashboard':
+      return getRiskDashboard(actor, args);
+    case 'getSchoolRiskOverview':
+      return getSchoolRiskOverview(actor, args);
     case 'runRiskPredictions':
       return runRiskPredictions(actor, input);
     default:
@@ -64,6 +73,11 @@ const runView = (r) => r && {
   threshold: r.threshold ?? null,
   students: r.students ?? null,
   at_risk: r.at_risk ?? null,
+  with_targets: r.with_targets ?? null,
+  targets_found: r.targets_found ?? null,
+  targets_fallback: r.targets_fallback ?? null,
+  targets_maintain: r.targets_maintain ?? null,
+  targets_failed: r.targets_failed ?? null,
   error: r.error ?? null,
   started_at: r.started_at ?? null,
   finished_at: r.finished_at ?? null,
@@ -87,6 +101,8 @@ const predictionView = (p, student) => ({
   predicted_at: p.predicted_at,
   explained: Boolean(p.shap_values),
   top_factors: topFactors(p, 3),
+  targets_status: p.counterfactuals?.status ?? null,
+  best_target: bestTarget(p.counterfactuals),
 });
 
 async function listRiskPredictions(actor, { school_id, class_id, prediction_point, academic_year }) {
@@ -103,8 +119,10 @@ async function listRiskPredictions(actor, { school_id, class_id, prediction_poin
 }
 
 /**
- * One student's prediction with its full explanation: every subject's and
- * attendance's push on the estimated risk, and the individual inputs under each.
+ * One student's prediction with its full explanation (every subject's and
+ * attendance's push on the estimated risk, and the individual inputs under
+ * each) and, when the model flags the student, its counterfactual targets for
+ * the next checkpoint.
  * Administrators, and the class teacher of the class the prediction was made in
  * or of the student's current class.
  */
@@ -125,6 +143,7 @@ async function getRiskExplanation(actor, { school_id, student_id, prediction_poi
     explained: Boolean(e),
     base_probability: e?.base_probability ?? null,
     factors: e?.factors ?? [],
+    targets: targetsOf(p.counterfactuals),
   };
 }
 

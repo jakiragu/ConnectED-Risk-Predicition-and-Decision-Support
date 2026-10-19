@@ -13,6 +13,8 @@
     "./calendar": "./calendar.js",
     "./attendance": "./attendance.js",
     "./features": "./features.js",
-    "./explanations": "./explanations.js"
+    "./explanations": "./explanations.js",
+    "./targets": "./targets.js",
+    "./decision": "./decisionSupport.js"
   }
 }

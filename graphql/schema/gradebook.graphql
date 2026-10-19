@@ -444,6 +444,7 @@ type FeatureReadiness {
 
 enum RiskRunStatus { QUEUED RUNNING COMPLETE FAILED SKIPPED }
 enum EffectDirection { RAISES LOWERS NONE }
+enum TargetsStatus { FOUND FALLBACK MAINTAIN NONE ERROR }
 
 type RiskPrediction {
   student_id: ID!
@@ -463,6 +464,65 @@ type RiskPrediction {
   predicted_at: AWSDateTime!
   explained: Boolean!          # false for predictions made before explanations were added
   top_factors: [RiskFactorSummary!]!   # the subjects / attendance that pushed hardest
+  targets_status: TargetsStatus        # null when the student is not flagged (no targets are made)
+  best_target: [RiskTargetChange!]!    # the first option's changes (FOUND or FALLBACK); empty otherwise
+}
+
+# Counterfactual targets for the NEXT checkpoint. The student's current results
+# are carried forward as a hypothetical baseline; a target is how much higher a
+# result would need to be there for the next checkpoint's model (at T3M: the
+# pass mark on the projected Term 3 Final average) to stop flagging them.
+#   FOUND     DiCE found targets that clear it within the permitted changes
+#   FALLBACK  DiCE could not; targets from comparable students' progress (may not clear it)
+#   MAINTAIN  keeping the current results already clears it
+#   NONE      nothing can be raised;  ERROR  the targets could not be worked out
+type RiskTargetChange {
+  column: String!              # the next checkpoint's input, e.g. T1F_Kiswahili
+  label: String!               # e.g. "Kiswahili, Term 1 End-term exam"
+  group: String!               # subject or Attendance
+  kind: String!                # score | attendance
+  from: Float!                 # the baseline (carried forward)
+  to: Float!
+  gain: Float!
+  basis: String                # fallback only: peer | cap
+  peer_window: Int             # fallback only: the +- window of the peer group
+  peer_count: Int
+  peer_change: Float           # fallback only: the peers' change at the target percentile
+}
+
+type RiskTargetOption {
+  method: String!              # dice-random | peer-progression
+  score: Float                 # next model's probability, or the projected T3F average
+  at_risk: Boolean!            # whether the projection is still at risk
+  changes: [RiskTargetChange!]!
+}
+
+type RiskTargetCap {
+  column: String!
+  label: String!
+  max_increase: Float!
+  max_value: Float!
+  source: String!              # data | static | ceiling
+}
+
+type RiskTargets {
+  status: TargetsStatus!
+  reason: String
+  method: String
+  target_point: String         # T1F | T2M | T2F | T3M | T3F
+  target_label: String
+  evaluation_kind: String      # model | pass_mark_rule
+  model_point: String          # the model that judged the targets
+  threshold: Float
+  pass_mark: Float             # T3M only
+  missing_score_policy: String # T3M only
+  baseline_score: Float        # the carried-forward baseline's probability or projected average
+  baseline_at_risk: Boolean
+  dice_reason: String          # why DiCE found nothing (FALLBACK / NONE)
+  stats_available: Boolean     # the model package has data-derived caps and peer statistics
+  partial: Boolean             # decision support: true when only the viewer's subjects are shown
+  caps: [RiskTargetCap!]!
+  options: [RiskTargetOption!]!
 }
 
 # SHAP explanations. An effect is a push on the model's output in log-odds:
@@ -496,6 +556,7 @@ type RiskFactor {
   missing_columns: Int!
   all_missing: Boolean!
   columns: [RiskFactorColumn!]!
+  level: String                # decision support only: HIGH | MEDIUM | LOW contributor (factors that raised the risk)
 }
 
 type RiskExplanation {
@@ -504,6 +565,7 @@ type RiskExplanation {
   explained: Boolean!
   base_probability: Float      # the model's starting point before any input (its average output)
   factors: [RiskFactor!]!      # largest push first
+  targets: RiskTargets         # null when the student is not flagged
 }
 
 type ImportanceItem {
@@ -547,6 +609,11 @@ type RiskRun {
   threshold: Float
   students: Int
   at_risk: Int
+  with_targets: Int            # flagged students with targets (FOUND + FALLBACK + MAINTAIN)
+  targets_found: Int
+  targets_fallback: Int
+  targets_maintain: Int
+  targets_failed: Int
   error: String
   started_at: AWSDateTime
   finished_at: AWSDateTime
@@ -840,6 +907,233 @@ input SetCheckpointWeightsInput {
   _version: Int!             # GradeRule.checkpoint_weights_version you were editing
 }
 
+# ------------------------------------------------- decision support (#13)
+# Interventions teachers record against a student's risk record, and what the
+# record shows them. Who sees what: administrators and the class teacher every
+# factor (each subject and attendance); a subject teacher in the student's class
+# only the subjects they teach there. A factor is a gradebook subject (CRE) or
+# "Attendance". The teacher chooses interventions; outcomes are descriptive
+# monitoring, not evidence that an intervention caused a change.
+
+enum InterventionStatus { ONGOING STOPPED }
+enum InterventionFrequency { ONCE DAILY WEEKLY MONTHLY }
+
+type InterventionTarget {
+  column: String!
+  label: String!
+  from: Float!
+  to: Float!
+  gain: Float!
+  method: String               # dice-random | peer-progression
+}
+
+# The prediction an intervention responded to, as it was when the intervention was logged.
+type InterventionLink {
+  academic_year: Int
+  prediction_point: String!
+  run_id: ID
+  model_version: String
+  probability: Float!
+  at_risk: Boolean!
+  threshold: Float
+  predicted_at: AWSDateTime
+  targets_status: TargetsStatus
+  target: InterventionTarget   # the target set for this factor then, if there was one
+}
+
+type InterventionOutcome {
+  from_point: String!
+  from_label: String!
+  to_point: String             # null: no later published checkpoint yet
+  to_label: String
+  from: Float                  # the factor's result where the intervention was logged
+  to: Float                    # its latest later result
+  change: Float
+  target_gain: Float
+  reached_target: Boolean
+  risk_from: Float             # the estimate it responded to
+  risk_to: Float               # the latest later estimate
+  risk_to_point: String
+}
+
+type Intervention {
+  intervention_id: ID!
+  student_id: ID!
+  class_id: ID
+  factor: String!
+  method: String!
+  frequency: InterventionFrequency!
+  status: InterventionStatus!
+  started_on: AWSDate!
+  stopped_on: AWSDate
+  expected_outcome: String
+  notes: String
+  linked: InterventionLink
+  outcome: InterventionOutcome
+  created_by: ID
+  created_by_name: String
+  created_at: AWSDateTime
+  updated_by_name: String
+  updated_at: AWSDateTime
+  deleted: Boolean
+  _version: Int!
+}
+
+# A method teachers in the school have used for a factor: suggestions in the intervention form.
+type InterventionMethod {
+  factor: String!
+  method: String!
+  added_by_name: String
+  teachers_used: Int!
+  uses: Int!
+  last_used_at: AWSDateTime
+}
+
+input SaveInterventionInput {
+  school_id: ID!
+  student_id: ID!
+  intervention_id: ID!         # made by the client, so a retried create is not duplicated
+  factor: String!
+  method: String!
+  frequency: InterventionFrequency!
+  status: InterventionStatus!
+  started_on: AWSDate!
+  stopped_on: AWSDate          # required when STOPPED
+  expected_outcome: String
+  notes: String
+  _version: Int                # null to create; the version you edited otherwise
+}
+
+input DeleteInterventionInput {
+  school_id: ID!
+  student_id: ID!
+  intervention_id: ID!
+  _version: Int!
+}
+
+type RiskScope {
+  all: Boolean!                # every factor
+  factors: [String!]!          # the factors the viewer may see
+}
+
+type RiskSummary {
+  prediction_point: String!
+  label: String!
+  probability: Float!
+  at_risk: Boolean!
+  threshold: Float!
+  model_version: String!
+  predicted_at: AWSDateTime
+  targets_status: TargetsStatus
+}
+
+type ProfileStudent {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  class_id: ID
+  class_name: String
+}
+
+type ProfileSubjectResult {
+  subject: String!
+  score: Float                 # the checkpoint exam result, out of 100
+  grade: String
+}
+
+type CheckpointResults {
+  point: String!               # T1M ... T3F
+  label: String!
+  average: Float               # all subjects; null for a subject teacher
+  subjects: [ProfileSubjectResult!]!
+}
+
+type StudentRiskProfile {
+  student: ProfileStudent!
+  academic_year: Int
+  scope: RiskScope!
+  current: Boolean!            # false: results were published later and no prediction followed yet
+  last_published_point: String
+  latest: RiskSummary
+  previous: RiskSummary
+  base_probability: Float
+  explained: Boolean!
+  factors: [RiskFactor!]!
+  targets: RiskTargets
+  results: CheckpointResults   # the latest published checkpoint
+  risk_trend: [RiskSummary!]!
+  performance_trend: [CheckpointResults!]!
+  interventions: [Intervention!]!
+}
+
+type DashboardAtRisk {
+  student: ProfileStudent!
+  latest: RiskSummary!
+  targets: [RiskTargetChange!]!   # the first option's changes the viewer may see
+  partial: Boolean!               # true: only the viewer's subjects are shown
+  interventions: [String!]!       # ongoing methods the viewer may see
+}
+
+type DashboardIntervention {
+  intervention_id: ID!
+  student_id: ID!
+  student_name: String!
+  class_name: String
+  factor: String!
+  method: String!
+  frequency: InterventionFrequency!
+  started_on: AWSDate!
+}
+
+type DashboardAssessment {
+  assessment_id: ID!
+  class_name: String
+  subject: String!
+  title: String!
+  assessment_type: String!
+  status: AssessmentStatus!
+  missing: Int!
+  due_date: AWSDate
+}
+
+type RiskDashboard {
+  academic_year: Int
+  term_name: String
+  classes: Int!
+  students: Int!
+  at_risk: Int!
+  at_risk_students: [DashboardAtRisk!]!
+  ongoing_interventions: [DashboardIntervention!]!
+  pending_assessments: [DashboardAssessment!]!
+}
+
+type RiskRatePoint {
+  point: String!
+  label: String
+  students: Int!
+  at_risk: Int!
+  rate: Float
+}
+
+type RiskGroupRow {
+  key: ID!
+  label: String!
+  series: [RiskRatePoint!]!
+  latest: RiskRatePoint
+  interventions_ongoing: Int
+  interventions_logged: Int
+}
+
+type SchoolRiskOverview {
+  academic_year: Int
+  points: [RiskRatePoint!]!
+  forms: [RiskGroupRow!]!
+  classes: [RiskGroupRow!]!
+  interventions_ongoing: Int!
+  interventions_logged: Int!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   listAssessmentsByClass(
@@ -868,6 +1162,11 @@ type Query {
   getRiskRun(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): RiskRun                             # Admin | class teacher
   getRiskExplanation(school_id: ID!, student_id: ID!, prediction_point: String!, academic_year: Int): RiskExplanation!   # Admin | class teacher
   getRiskImportance(school_id: ID!, prediction_point: String!, academic_year: Int, class_id: ID): RiskImportance!       # Admin; class teacher with their class_id
+  getStudentRiskProfile(school_id: ID!, student_id: ID!, academic_year: Int): StudentRiskProfile!   # Admin | class teacher | subject teacher (own subjects)
+  getRiskDashboard(school_id: ID!): RiskDashboard!
+  getSchoolRiskOverview(school_id: ID!, academic_year: Int): SchoolRiskOverview!                   # Admin
+  listStudentInterventions(school_id: ID!, student_id: ID!): [Intervention!]!
+  listInterventionMethods(school_id: ID!, factor: String): [InterventionMethod!]!
   getRiskModel(school_id: ID!): RiskModel!                                                                                # Admin
 }
 
@@ -906,4 +1205,6 @@ type Mutation {
   updateTerm(input: UpdateTermInput!): Term!                                  # Admin
   submitAttendance(input: SubmitAttendanceInput!): SubmitAttendanceResult!    # Admin | class teacher
   runRiskPredictions(input: RunRiskPredictionsInput!): RiskRun!               # Admin; queues a fresh run
+  saveIntervention(input: SaveInterventionInput!): Intervention!              # Admin | class teacher | subject teacher (own subjects)
+  deleteIntervention(input: DeleteInterventionInput!): Intervention!
 }

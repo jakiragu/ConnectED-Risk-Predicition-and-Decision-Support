@@ -1,8 +1,11 @@
-# Packaging (ml/package_xgboost.py) and the SHAP check (ml/verify_shap.py). The
-# scorer has its own pinned list in backend/lambdas/risk-scorer/requirements.txt;
+# Packaging (ml/package_xgboost.py, ml/counterfactual_stats.py), the SHAP check
+# (ml/verify_shap.py) and the counterfactual-limit comparison
+# (ml/compare_counterfactual_caps.py, which runs the scorer's counterfactuals.py).
+# The scorer has its own list in backend/lambdas/risk-scorer/requirements.txt;
 # keep xgboost the same in both. shap is only needed for the check.
-xgboost==3.4.1
-numpy==2.4.4
-pandas==3.0.2
-scikit-learn==1.8.0
-shap==0.53.0
+xgboost>=2.0.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+pandas>=2.0.0,<3.0.0
+scikit-learn>=1.2.0
+shap>=0.44.0
+dice-ml>=0.11

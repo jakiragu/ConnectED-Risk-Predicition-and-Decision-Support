@@ -9,10 +9,14 @@ feature contract's columns (ml/feature-contract.json), and writes one model per
 prediction point in XGBoost's portable JSON format plus a manifest. The
 manifest also records each point's global feature importance: the mean
 absolute SHAP value of every input on the held-out students, and the same per
-subject (all of a subject's checkpoints together) and for attendance.
+subject (all of a subject's checkpoints together) and for attendance. The
+package also gets counterfactual-stats.json (ml/counterfactual_stats.py): the
+permitted-change caps and peer-progression statistics for counterfactual
+targets, from the same training students only.
 
     <out>/manifest.json
     <out>/T1M.json ... <out>/T3M.json
+    <out>/counterfactual-stats.json
 
 Usage:
     python ml/package_xgboost.py --data <folder with snapshot_T1M.csv ...> --out ml/models/xgb-notebook-v1
@@ -32,6 +36,8 @@ from sklearn.metrics import (accuracy_score, average_precision_score, f1_score,
                              precision_score, recall_score, roc_auc_score)
 from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
+
+import counterfactual_stats
 
 POINTS = ["T1M", "T1F", "T2M", "T2F", "T3M"]
 TARGET = "academic_risk"
@@ -137,6 +143,9 @@ def main():
         print(f"{point}: {len(features)} features  F1 {m['f1']:.3f}  recall {m['recall']:.3f}  ROC-AUC {m['roc_auc']:.3f}  -> {path}")
 
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    stats = counterfactual_stats.build(snapshots, set(train_ids))
+    counterfactual_stats.write(out, stats)
+    print(f"Counterfactual statistics from {stats['train_students']} training students -> {out / counterfactual_stats.FILE}")
     print(f"\nWrote {out / 'manifest.json'} (model_version {version})")
 
 

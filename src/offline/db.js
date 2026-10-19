@@ -18,7 +18,9 @@ export function openFor(sub) {
   current?.close();
   current = new Dexie(nameFor(sub));
   current.version(1).stores(SCHEMA);
-  current.version(2).stores({ terms: 'term_id' }); 
+  current.version(2).stores({ terms: 'term_id' });
+  // Interventions (offline logging, synced on reconnect) and saved copies of decision-support views (offline reading).
+  current.version(3).stores({ interventions: 'intervention_id, student_id, class_id', cache: 'key' });
   owner = sub;
   return current;
 }

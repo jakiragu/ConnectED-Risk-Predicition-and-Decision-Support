@@ -104,16 +104,17 @@ export default function Students() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Admission no</th><th>First name</th><th>Last name</th><th>Status</th>{canManage && <th>Action</th>}</tr>
+            <tr><th>Admission no</th><th>First name</th><th>Last name</th><th>Status</th><th>Risk</th>{canManage && <th>Action</th>}</tr>
           </thead>
           <tbody>
-            {shown.length === 0 && <tr className="empty"><td colSpan={5}>No students.</td></tr>}
+            {shown.length === 0 && <tr className="empty"><td colSpan={6}>No students.</td></tr>}
             {shown.map((s) =>
               editing === s.student_id ? (
                 <tr key={s.student_id} className="row-dirty">
                   <td><input aria-label="Admission no" value={draft.admission_no} onChange={(e) => setDraft({ ...draft, admission_no: e.target.value })} /></td>
                   <td><input aria-label="First name" value={draft.first_name} onChange={(e) => setDraft({ ...draft, first_name: e.target.value })} /></td>
                   <td><input aria-label="Last name" value={draft.last_name} onChange={(e) => setDraft({ ...draft, last_name: e.target.value })} /></td>
+                  <td />
                   <td />
                   <td className="actions">
                     <button type="button" className="btn link"
@@ -127,6 +128,7 @@ export default function Students() {
                   <td>{s.first_name}</td>
                   <td>{s.last_name}</td>
                   <td>{s.status === 'ACTIVE' ? 'Active' : <span className="warn">Deactivated</span>}</td>
+                  <td><Link to={`/students/${s.student_id}/risk`}>Risk profile</Link></td>
                   {canManage && (
                     <td className="actions">
                       <button type="button" className="btn link"

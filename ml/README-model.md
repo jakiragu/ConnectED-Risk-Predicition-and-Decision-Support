@@ -13,6 +13,7 @@ A folder with one XGBoost model per prediction point and a manifest:
 my-model/
   manifest.json
   T1M.json  T1F.json  T2M.json  T2F.json  T3M.json
+  counterfactual-stats.json      (optional)
 ```
 
 Each model file is a binary classifier (`objective: binary:logistic`) saved in
@@ -54,6 +55,8 @@ Missing inputs reach the model as NaN.
 - `threshold`: the probability at or above which a student is flagged at that point.
 - `sha256` per file: optional; the publish step fills it in.
 - `metrics`: optional; shown on the admin model view.
+- `counterfactual_stats`: optional; `{ "file": "counterfactual-stats.json", "sha256": ..., "settings": ... }`,
+  written by the packaging script (see Counterfactual targets).
 - `global_importance`: optional; the model's global SHAP importance on held-out data, shown as
   "What drives the model". `groups` uses the model's subject names (`Religious_Education`)
   and `Attendance`; `package_xgboost.py` shows how it is computed.
@@ -68,6 +71,39 @@ and add up to the model's output.
 
 `python ml/package_xgboost.py` writes a complete package. It fits the notebook's
 XGBoost configuration on the contract's columns and is the reference for the format.
+
+## Counterfactual targets
+
+For every student the model flags at a prediction point, the scorer works out
+targets for the NEXT checkpoint (`backend/lambdas/risk-scorer/counterfactuals.py`):
+
+1. The current results and attendance are carried forward as a hypothetical
+   next-checkpoint record; missing results stay missing.
+2. That record is judged by the next checkpoint's model (T1M targets by the T1F
+   model, and so on). At T3M there is no next model: the record is judged by the
+   At_Risk rule on the projected Term 3 Final average against the school's pass
+   mark, with missing subjects handled by the school's `missing_score_policy`.
+3. DiCE searches upward changes within the permitted-change caps for a record
+   that is no longer at risk. If it finds none, peer progression supplies the
+   targets instead (they may not clear the model; the projection says so).
+
+`counterfactual-stats.json` (written by `package_xgboost.py`, or added to an
+existing package by `ml/counterfactual_stats.py`) holds, from the training
+students only:
+
+- caps per transition: P90 of positive mark changes per subject, P95 of
+  positive year-to-date attendance changes (the scorer also caps attendance at
+  the most a student can reach by attending every school day of the next period);
+- peer progression per transition, subject and attendance: for every whole-mark
+  centre of the student's average so far, the window (+-5 widening to +-15
+  marks until at least 30 peers), the group size and the P75 change.
+
+Without the file, or for T3M -> T3F where there is no training data, the static
+limits apply (`COUNTERFACTUAL_STATIC_MARK_CAP` 20 marks,
+`COUNTERFACTUAL_STATIC_ATTENDANCE_CAP` 10 points) and there are no peer groups.
+`counterfactual_stats.py --help` lists the percentiles and window settings.
+`python ml/compare_counterfactual_caps.py --model <package> --data <csv folder>`
+compares DiCE success at each point under the static and the data-derived limits.
 
 ## Replacing the model
 
