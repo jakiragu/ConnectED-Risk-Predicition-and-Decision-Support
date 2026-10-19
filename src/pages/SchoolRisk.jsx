@@ -7,8 +7,6 @@ import ImportanceBars from '../components/ImportanceBars.jsx';
 import LineChart from '../components/LineChart.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
-import '../styles/explain.css';
-import '../styles/decision.css';
 
 const POINTS = ['T1M', 'T1F', 'T2M', 'T2F', 'T3M'];
 const SHORT = { T1M: 'T1 Mid', T1F: 'T1 End', T2M: 'T2 Mid', T2F: 'T2 End', T3M: 'T3 Mid' };
@@ -26,7 +24,7 @@ function RateTable({ rows, caption, link }) {
           {rows.length === 0 && <tr className="empty"><td colSpan={8}>No predictions yet.</td></tr>}
           {rows.map((r) => (
             <tr key={r.key}>
-              <td>{link ? <Link to={`/model-inputs?class=${r.key}`}>{r.label}</Link> : r.label}</td>
+              <td>{link ? <Link to={`/risk?class=${r.key}`} >{r.label}</Link> : r.label}</td>
               {r.series.map((s) => <td key={s.point}>{s.students ? `${pct(s.rate)} (${s.at_risk}/${s.students})` : '—'}</td>)}
               <td>{r.latest ? `${r.latest.at_risk}/${r.latest.students} at ${SHORT[r.latest.point]}` : '—'}</td>
               {r.interventions_ongoing != null && <td>{r.interventions_ongoing} <span className="hint">of {r.interventions_logged}</span></td>}

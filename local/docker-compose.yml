@@ -1,9 +1,10 @@
 services:
   dynamodb:
     image: amazon/dynamodb-local:latest
+    user: root
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/data"]
     ports: ["8000:8000"]
-    volumes: ["./.data/dynamodb:/data"]
+    volumes: ["dynamodb_data:/data"]
 
   dynamodb-admin:
     image: aaronshaf/dynamodb-admin:latest
@@ -39,3 +40,6 @@ services:
       AWS_SECRET_ACCESS_KEY: local
       LAMBDA_ENDPOINT: http://host.docker.internal:4011
     extra_hosts: ["host.docker.internal:host-gateway"]
+
+volumes:
+  dynamodb_data:

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { gql } from '../api/graphql.js';
 import { CREATE_CLASS, DELETE_CLASS, LIST_SCHOOL_CLASSES, UPDATE_CLASS } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Offline, DangerButton } from '../components/ui.jsx';
 import { Field } from '../components/Field.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
@@ -115,7 +116,7 @@ function SchoolClasses({ schoolId }) {
     if (created) setForm(EMPTY);
   }
 
-  if (!online) return <div className="notice">Managing classes needs a connection.</div>;
+  if (!online) return <Offline what="Managing classes" />;
 
   return (
     <>
@@ -168,11 +169,11 @@ function SchoolClasses({ schoolId }) {
                         c.status === 'CURRENT' ? `${c.name} archived` : `${c.name} restored`)}>
                       {c.status === 'CURRENT' ? 'Archive' : 'Restore'}
                     </button>
-                    <button type="button" className="btn link danger"
+                    <DangerButton icon="trash"
                       onClick={() => window.confirm(`Delete ${c.name}? Only an empty class can be deleted.`)
                         && run(DELETE_CLASS, { class_id: c.class_id, _version: c._version }, `${c.name} deleted`)}>
                       Delete
-                    </button>
+                    </DangerButton>
                   </td>
                 </tr>
               )

@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { backTo } from '../navigation.js';
 import { CHECKPOINT_ORDER, FREQUENCY_LABEL } from '@gradebook/domain/decision';
 import { CHECKPOINT_LABEL } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
 import LineChart from '../components/LineChart.jsx';
-import { Targets } from '../components/RiskExplanation.jsx';
+import { influenceItems, summarise, Targets } from '../components/RiskExplanation.jsx';
+import { InfluenceChart } from '../components/ui.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
-import '../styles/explain.css';
-import '../styles/decision.css';
 
 const pct = (p) => (p == null ? '—' : `${Math.round(p * 100)}%`);
 const mark = (v) => (v == null ? '—' : `${Math.round(v * 10) / 10}`);
-const LEVEL = { HIGH: 'High contributor', MEDIUM: 'Medium contributor', LOW: 'Low contributor' };
 const SHORT = { T1M: 'T1 Mid', T1F: 'T1 End', T2M: 'T2 Mid', T2F: 'T2 End', T3M: 'T3 Mid', T3F: 'T3 End' };
 
 /** "Kiswahili: +4 (40 to 44)" for a change in a factor, with the unit it is measured in. */
@@ -56,6 +55,7 @@ export default function StudentProfile() {
   const { actor } = useAuth();
   const { online } = useSync();
   const navigate = useNavigate();
+  const location = useLocation();
   const [view, setView] = useState({ data: null, fromDevice: false, savedAt: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -84,13 +84,13 @@ export default function StudentProfile() {
 
   return (
     <div className="stack">
-      <button type="button" className="btn link back" onClick={() => navigate(-1)}>Back</button>
+      <button type="button" className="btn link back" onClick={() => navigate(backTo(location))}>Back</button>
       {view.fromDevice && <div className="notice">You are offline. This is the copy saved on this device at {new Date(view.savedAt).toLocaleString()}.</div>}
 
       <div className="card profile-head">
         <h1>{p.student.first_name} {p.student.last_name}</h1>
         <div>Admission no: <b>{p.student.admission_no}</b> · Class: <b>{p.student.class_name ?? '—'}</b></div>
-        <Link className="btn primary" to={`/students/${studentId}/interventions`}>Log or update interventions</Link>
+        <Link className="btn primary" to={`/students/${studentId}/interventions`} state={{ from: backTo(location) }}>Log or update interventions</Link>
       </div>
 
       {!p.scope.all && (
@@ -128,19 +128,14 @@ export default function StudentProfile() {
 
           {latest && (
             <>
-              <h3>What the estimate was based on</h3>
-              {!p.explained && <div className="hint">This prediction was made before explanations were added.</div>}
+              <h3>What moved the estimate</h3>
+              {!p.explained && <div className="hint">This estimate was made before explanations were added.</div>}
               {p.explained && (
-                <ul className="plain factors">
-                  {p.factors.map((f) => (
-                    <li key={f.group}>
-                      <b>{f.group}</b>: {f.level ? LEVEL[f.level] : f.direction === 'LOWERS' ? 'lowered the estimate' : 'little effect'}
-                      <span className="hint"> ({Math.round(f.share * 100)}% of the overall effect{f.all_missing ? '; no results, read by the model as lower risk' : ''})</span>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  {summarise(p.factors) && <div>{summarise(p.factors)}</div>}
+                  <InfluenceChart items={influenceItems(p.factors)} />
+                </>
               )}
-              <div className="hint">These show what moved the model&apos;s estimate, not causes.</div>
               <h3>Targets</h3>
               {p.targets ? (
                 <>

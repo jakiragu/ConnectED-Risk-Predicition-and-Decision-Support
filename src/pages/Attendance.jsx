@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { validateAttendance } from '@gradebook/domain/attendance';
 import { gql } from '../api/graphql.js';
+import { useLatest } from '../api/useLatest.js';
 import { GET_CLASS_ATTENDANCE, SUBMIT_ATTENDANCE } from '../api/calendarOperations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
+import { EmptyState, Info, Notice, Offline } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
-import '../styles/calendar.css';
 
 const PERIODS = [
   { value: 'MIDTERM', label: 'Start of term to Mid-term' },
@@ -33,11 +34,13 @@ export default function Attendance() {
   const { terms, defaultTermId } = useTerms(actor.schoolId);
   const classes = useLive(() => db().classes.toArray(), [], []);
 
+  // Attendance is the class teacher's: they see only their own class; administrators choose any class.
   const mine = useMemo(
-    () => classes.filter((c) => isAdmin || c.is_class_teacher || (c.my_subjects || []).length).sort((a, b) => a.name.localeCompare(b.name)),
+    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort((a, b) => a.name.localeCompare(b.name)),
     [classes, isAdmin]
   );
-  const classId = params.get('class') || classes.find((c) => c.is_class_teacher)?.class_id || mine[0]?.class_id || '';
+  const requested = params.get('class');
+  const classId = (requested && mine.some((c) => c.class_id === requested) ? requested : null) || mine[0]?.class_id || '';
   const termId = params.get('term') || defaultTermId;
   const period = params.get('period') === 'ENDTERM' ? 'ENDTERM' : 'MIDTERM';
   const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classId, term: termId, period, ...next }).filter(([, v]) => v)));
@@ -48,20 +51,35 @@ export default function Attendance() {
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Why the class list may be empty: still loading, or the server refused (shown instead of "No class to record").
+  const [classesLoaded, setClassesLoaded] = useState(false);
+  const [classesError, setClassesError] = useState(null);
 
   useEffect(() => {
-    repository.loadClasses(actor.schoolId).catch(() => {});
+    setClassesError(null);
+    repository.loadClasses(actor.schoolId)
+      .catch((e) => setClassesError(e.message))
+      .finally(() => setClassesLoaded(true));
   }, [actor.schoolId]);
 
+  const latest = useLatest();
   const load = useCallback(async () => {
     if (!classId || !termId) return;
-    const { getClassAttendance: s } = await gql(GET_CLASS_ATTENDANCE, { school_id: actor.schoolId, class_id: classId, term_id: termId, period });
+    const n = latest.start();
+    let s;
+    try {
+      ({ getClassAttendance: s } = await gql(GET_CLASS_ATTENDANCE, { school_id: actor.schoolId, class_id: classId, term_id: termId, period }));
+    } catch (e) {
+      if (latest.isLatest(n)) throw e;
+      return;
+    }
+    if (!latest.isLatest(n)) return; // a newer class, term or period is on screen now
     setSheet(s);
     setDrafts(Object.fromEntries(s.students.map((st) => [st.student_id, {
       days_attended: asText(st.entry?.days_attended),
       days_excused: asText(st.entry?.days_excused ?? (st.entry ? 0 : '')),
     }])));
-  }, [actor.schoolId, classId, termId, period]);
+  }, [actor.schoolId, classId, termId, period, latest]);
 
   useEffect(() => {
     setError(null);
@@ -121,38 +139,50 @@ export default function Attendance() {
     }
   }
 
-  if (!online) return <div className="notice">Recording attendance needs a connection.</div>;
-  if (!mine.length) return <div className="notice">You are not assigned to any class yet.</div>;
+  if (!online) return <Offline what="Recording attendance" />;
+  if (!mine.length) {
+    if (classesError) return <Notice tone="error">{classesError}</Notice>;
+    if (!classesLoaded) return <p className="hint">Loading…</p>;
+    return <EmptyState title="No class to record">Attendance is recorded by each class&apos;s class teacher.</EmptyState>;
+  }
 
   const editable = Boolean(sheet?.can_edit);
 
   return (
     <>
       <div className="page-head">
-        <h1>Attendance</h1>
-        <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
-          options={mine.map((c) => ({ value: c.class_id, label: c.name }))} style={{ width: 190 }} />
+        <h1>Attendance{!isAdmin && mine[0] ? `: ${mine[0].name}` : ''}</h1>
+        <Info label="How attendance is recorded">
+          Enter the days each student attended and the days excused in each period. Excused days are left out of the
+          percentage. The figure for the school year so far is what the risk model uses at this checkpoint.
+        </Info>
+      </div>
+      <div className="toolbar">
+        {isAdmin && (
+          <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
+            options={mine.map((c) => ({ value: c.class_id, label: c.name }))} />
+        )}
         <Select aria-label="Term" value={termId} onChange={(v) => go({ term: v })}
-          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} style={{ width: 160 }} />
-        <Select aria-label="Period" value={period} onChange={(v) => go({ period: v })} options={PERIODS} style={{ width: 230 }} />
+          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} />
+        <Select aria-label="Period" value={period} onChange={(v) => go({ period: v })} options={PERIODS} />
       </div>
 
-      {error && <div className="card error-card">{error}</div>}
-      {notice && <div className="notice">{notice}</div>}
+      {error && <Notice tone="error">{error}</Notice>}
+      {notice && <Notice tone="success">{notice}</Notice>}
+
+      {!sheet && !error && <p className="hint">Loading attendance…</p>}
 
       {sheet && (
         <>
           <div className="budget-row">
             <span>{sheet.class_name} · {sheet.term_name}</span>
             <span className="period-chip">{sheet.period_label}: {sheet.from} to {sheet.to} · <b>{sheet.school_days}</b> school days</span>
-            {sheet.locked && <span className="warn">Locked: End of term results are published</span>}
-            {!editable && !sheet.locked && <span className="hint">Only the class teacher or an administrator can record attendance.</span>}
+            {sheet.locked && <span className="pill locked">Locked: end-of-term results are published</span>}
           </div>
 
           {editable && (
             <div className="budget-row">
               <button type="button" className="btn secondary" onClick={fillFull}>Fill blanks with full attendance</button>
-              <span className="hint">Then lower the days for students who missed school. Excused days are left out of the percentage.</span>
             </div>
           )}
 
@@ -208,7 +238,6 @@ export default function Attendance() {
               <button type="button" className="btn" disabled={saving || !changed.length} onClick={save}>
                 {saving ? 'Saving' : `Save attendance${changed.length ? ` (${changed.length})` : ''}`}
               </button>
-              <span className="hint">School year so far is the figure the risk model uses at this checkpoint.</span>
             </div>
           )}
         </>

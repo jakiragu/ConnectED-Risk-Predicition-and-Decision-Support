@@ -20,6 +20,7 @@ import { watchClass } from '../offline/syncEngine.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
+import { DangerButton } from '../components/ui.jsx';
 
 const TYPE_ORDER = { Opener: 0, 'Mid-term': 1, 'End-term': 2 };
 
@@ -30,7 +31,9 @@ export default function Assessments() {
   const classId = params.get('class') || '';
   const { terms, defaultTermId } = useTerms(actor.schoolId);
   const termId = params.get('term') || defaultTermId;
-  const go = (next) => setParams({ class: classId, term: termId, ...next });
+  const subjectFilter = params.get('subject') || '';
+  const typeFilter = params.get('type') || '';
+  const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classId, term: termId, subject: subjectFilter, type: typeFilter, ...next }).filter(([, v]) => v)));
 
   const [deleted, setDeleted] = useState([]);
   const [error, setError] = useState(null);
@@ -102,7 +105,10 @@ export default function Assessments() {
   }
   const restore = (a) => run(RESTORE_ASSESSMENT, byId(a));
 
-  const list = assessments || [];
+  // Filters: '' means all subjects / all exams.
+  const list = (assessments || []).filter((a) => (!subjectFilter || a.subject === subjectFilter) && (!typeFilter || a.assessment_type === typeFilter));
+  const subjectsHere = [...new Set((assessments || []).map((a) => a.subject))].sort();
+  const typesHere = [...new Set((assessments || []).map((a) => a.assessment_type))];
   const sorted = useMemo(
     () => [...list].sort((a, b) => a.subject.localeCompare(b.subject)
       || (TYPE_ORDER[a.assessment_type] ?? 9) - (TYPE_ORDER[b.assessment_type] ?? 9)
@@ -132,7 +138,6 @@ export default function Assessments() {
           onChange={(v) => go({ term: v })}
           options={terms.map((t) => ({ value: t.term_id, label: t.name }))}
           placeholder="Choose a term"
-          style={{ width: 180 }}
         />
         <Select
           aria-label="Class"
@@ -140,8 +145,13 @@ export default function Assessments() {
           onChange={(v) => go({ class: v })}
           options={[...classes].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.class_id, label: c.name }))}
           placeholder="Choose a class"
-          style={{ width: 220 }}
         />
+        {classId && subjectsHere.length > 1 && (
+          <Select aria-label="Subject" value={subjectFilter} onChange={(v) => go({ subject: v })} allLabel="All subjects" options={subjectsHere} />
+        )}
+        {classId && typesHere.length > 1 && (
+          <Select aria-label="Exam" value={typeFilter} onChange={(v) => go({ type: v })} allLabel="All exams" options={typesHere} />
+        )}
         <Link className="btn" to={`/assessments/new?class=${classId}&term=${termId}`}>
           Add assessment
         </Link>
@@ -212,10 +222,10 @@ export default function Assessments() {
                             <button type="button" className="btn link" onClick={() => lock(a)}>Lock</button>
                           )}
                           {a.score_count === 0 && (
-                            <button type="button" className="btn link danger" onClick={() => remove(a)}>Delete</button>
+                            <DangerButton onClick={() => remove(a)}>Delete</DangerButton>
                           )}
                           {a.score_count > 0 && isAdmin && (
-                            <button type="button" className="btn link danger" onClick={() => softRemove(a)}>Delete</button>
+                            <DangerButton onClick={() => softRemove(a)}>Delete</DangerButton>
                           )}
                         </>
                       )}

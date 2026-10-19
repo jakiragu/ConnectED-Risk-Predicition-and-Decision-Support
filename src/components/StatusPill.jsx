@@ -10,8 +10,8 @@ const LABELS = {
 };
 
 const TONE = {
-  NOT_CALCULATED: 'unrecorded',
-  UNPUBLISHED: 'unrecorded',
+  NOT_CALCULATED: 'neutral',
+  UNPUBLISHED: 'neutral',
   CALCULATED: 'recording',
   PUBLISHED: 'recorded',
 };

@@ -1,180 +1,174 @@
-import { useState } from 'react';
-import { sentence } from '@gradebook/domain/explanations';
-import { targetText } from '@gradebook/domain/targets';
-import '../styles/explain.css';
-
-const pct = (p) => `${(p * 100).toFixed(1)}%`;
-
-/** One factor's push, drawn either side of a centre line: right raises the estimated risk, left lowers it. */
-function Bar({ effect, max, missing }) {
-  const width = max > 0 ? Math.min(Math.abs(effect) / max, 1) * 50 : 0;
-  const side = effect >= 0 ? 'raises' : 'lowers';
-  return (
-    <div className="factor-bar" aria-hidden="true">
-      <span className="axis" />
-      <span className={`fill ${side}${missing ? ' missing' : ''}`} style={{ width: `${width}%` }} />
-    </div>
-  );
-}
-
-const SOURCE = { data: 'from training data', static: 'static limit', ceiling: 'attendance ceiling' };
-
-/** What the targets are judged against, in words. */
-function judgedBy(t) {
-  return t.evaluation_kind === 'pass_mark_rule'
-    ? `a projected ${t.target_label} average of at least ${t.pass_mark}% (missing subjects: ${t.missing_score_policy === 'ZERO' ? 'counted as 0' : 'left out'})`
-    : `the ${t.target_label} model's threshold of ${pct(t.threshold)}`;
-}
-
-const projection = (t, o) => (t.evaluation_kind === 'pass_mark_rule'
-  ? `projected ${t.target_label} average ${o.score == null ? '—' : `${o.score.toFixed(1)}%`}`
-  : `the ${t.target_label} model's estimate would be ${pct(o.score)}`);
+import { Info, InfluenceChart, Notice, RiskBar } from './ui.jsx';
 
 /**
- * Counterfactual targets for the next checkpoint: the student's current results
- * carried forward, and how much higher they would need to be there. DiCE
- * targets clear the next checkpoint's model (or, at T3M, the pass mark);
- * peer-progression targets are a fallback and may not.
+ * One student's estimate, explained for a teacher:
+ *   how risky        the estimate against the model's threshold
+ *   what moved it    each subject's and attendance's share of the SHAP explanation
+ *   what would help  the smallest changes at the next checkpoint that would stop
+ *                    the flag (DiCE), or comparable students' progress when no
+ *                    such change exists within realistic limits
+ * Model details (version, threshold, method, limits) are kept but folded away
+ * under "About this estimate". Everything here describes the model's estimate;
+ * none of it is a cause, and choosing an intervention is the teacher's decision.
  */
+
+const pct = (p) => (p == null ? '—' : `${Math.round(p * 100)}%`);
+const value = (c, v) => (c.kind === 'attendance' ? `${v.toFixed(1)}%` : `${Math.round(v)}`);
+const gain = (c) => (c.kind === 'attendance' ? `+${c.gain.toFixed(1)} points` : `+${Math.round(c.gain)}`);
+const and = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const METHOD = { 'dice-random': 'smallest changes that clear the next checkpoint (DiCE)', 'peer-progression': 'how comparable students progressed' };
+const SOURCE = { data: 'from past students’ progress', static: 'standard limit', ceiling: 'attending every remaining school day' };
+
+/** One sentence: which factors raised the estimate most, and which lowered it. */
+export function summarise(factors) {
+  const up = factors.filter((f) => f.direction === 'RAISES').slice(0, 2).map((f) => f.label);
+  const down = factors.filter((f) => f.direction === 'LOWERS').slice(0, 1).map((f) => f.label);
+  if (!up.length && !down.length) return null;
+  return [up.length && `Mostly raised by ${and(up)}`, down.length && `${down[0]} lowered it`].filter(Boolean).join('; ') + '.';
+}
+
+/** Factors for the influence chart. */
+export const influenceItems = (factors) => factors.map((f) => ({
+  key: f.group,
+  label: f.label,
+  share: f.share,
+  direction: f.direction,
+  missing: f.all_missing,
+  note: f.all_missing ? 'no results' : f.missing_columns ? `${f.missing_columns} missing` : null,
+}));
+
+/** The targets for the next checkpoint, as a short table. */
 export function Targets({ targets: t }) {
-  if (t.status === 'ERROR') return <div className="notice">Targets could not be worked out for this prediction. {t.reason}</div>;
-  if (t.status === 'NONE') return <div className="notice">No target. {t.reason}</div>;
-  const baseline = t.evaluation_kind === 'pass_mark_rule'
-    ? `a projected average of ${t.baseline_score == null ? '—' : `${t.baseline_score.toFixed(1)}%`}`
-    : `an estimate of ${pct(t.baseline_score)}`;
-  if (t.status === 'MAINTAIN') {
-    return (
-      <div className="notice">
-        If this student keeps their current results and attendance, the {t.target_label} would give {baseline}, which clears
-        {' '}{judgedBy(t)}. No raised target is needed; keeping up the current level is the target.
-      </div>
-    );
-  }
+  if (!t) return null;
+  if (t.status === 'MAINTAIN') return <Notice tone="success">Keeping the current results and attendance should be enough for the {t.target_label}.</Notice>;
+  if (t.status === 'NONE') return <div className="hint">No target: {t.reason}</div>;
+  if (t.status === 'ERROR') return <div className="hint">Targets could not be worked out for this estimate.</div>;
+  const [first, ...others] = t.options;
+  if (!first) return <div className="hint">No target for these subjects.</div>;
   return (
     <div className="stack">
-      <div>
-        Targets for the <b>{t.target_label}</b>. Carrying this student's current results forward gives {baseline}; the targets
-        are judged against {judgedBy(t)}. Results only go up, within the permitted changes below; subjects without results
-        get no target.
+      <div className="row">
+        <span>To stop being flagged at the <b>{t.target_label}</b>:</span>
+        {t.status === 'FALLBACK' && (
+          <span className="row">
+            <span className="chip muted">From comparable students</span>
+            <Info label="Why these targets">
+              No change within realistic limits would clear the next checkpoint, so these follow how students with similar
+              results improved. They may not be enough on their own.
+            </Info>
+          </span>
+        )}
       </div>
-      {t.status === 'FALLBACK' && (
-        <div className="notice">
-          DiCE found no change within the permitted limits that clears it ({t.dice_reason}). These targets come from how
-          comparable students progressed at this point instead, and may not be enough on their own.
-        </div>
+      <div className="table-wrap">
+        <table className="targets">
+          <thead><tr><th>Result</th><th className="num">Now</th><th className="num">Target</th><th className="num">Change</th></tr></thead>
+          <tbody>
+            {first.changes.map((c) => (
+              <tr key={c.column}>
+                <td>{c.kind === 'attendance' ? 'Attendance' : c.group}</td>
+                <td className="num">{value(c, c.from)}</td>
+                <td className="num"><b>{value(c, c.to)}</b></td>
+                <td className="num gain">{gain(c)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {others.length > 0 && (
+        <details className="more">
+          <summary>{others.length} other way{others.length === 1 ? '' : 's'} to reach it</summary>
+          <ul className="plain">
+            {others.map((o, i) => (
+              <li key={i} className="chips">
+                {o.changes.map((c) => <span key={c.column} className="chip target">{c.kind === 'attendance' ? 'Attendance' : c.group} {gain(c)}</span>)}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
-      <ol className="target-options">
-        {t.options.map((o, i) => (
-          <li key={i}>
-            <span className="target-changes">
-              {o.changes.map((c) => (
-                <span key={c.column} className="chip target"
-                  title={c.basis === 'peer' ? `Peers within ±${c.peer_window} marks (${c.peer_count} students) improved by ${c.peer_change?.toFixed(1)}`
-                    : c.basis === 'cap' ? 'Peers did not improve here (or too few peers): the permitted maximum' : ''}>
-                  {targetText(c)}
-                </span>
-              ))}
-            </span>
-            <span className="hint"> → {projection(t, o)}{o.at_risk ? ' (still at risk)' : ''}</span>
-          </li>
-        ))}
-      </ol>
-      <details>
-        <summary>Permitted changes</summary>
-        <ul>
-          {t.caps.map((c) => (
-            <li key={c.column} className="hint">{c.label}: up to +{c.max_increase.toFixed(1)} (at most {c.max_value.toFixed(1)}), {SOURCE[c.source] ?? c.source}</li>
-          ))}
-        </ul>
-        {!t.stats_available && <div className="hint">This model package has no training statistics, so the static limits apply.</div>}
-      </details>
-      <div className="hint">
-        The baseline is a hypothetical, not a prediction of the student's next results, and a target is what the model or the
-        pass-mark rule would need to see, not a guaranteed outcome. Which intervention to use is the teacher's decision.
-      </div>
+      <div className="hint">A target is what the model would need to see, not a guaranteed outcome. Which support to give is your decision.</div>
     </div>
   );
 }
 
-/**
- * Why the model gave this student this probability: each subject's and
- * attendance's push (SHAP), largest first, with the individual inputs under
- * each; and, when the model flags the student, counterfactual targets for the
- * next checkpoint. The pushes explain the model's output; they are not causes,
- * and they do not say what will happen if something changes.
- *
- * @param {{explanation: object, name: string}} props   explanation from getRiskExplanation
- */
-export default function RiskExplanation({ explanation, name }) {
-  const [open, setOpen] = useState(null);
-  const { prediction: p, factors } = explanation;
-  if (!explanation.explained) {
-    return (
-      <div className="card stack">
-        <h2>Why {name}: {p.prediction_point}</h2>
-        <div className="notice">This prediction was made before explanations were added. Run the class's predictions again to explain it.</div>
-      </div>
-    );
-  }
-  const max = Math.max(...factors.map((f) => Math.abs(f.effect)), 0);
-  const missingPush = factors.filter((f) => f.missing_columns > 0 && f.direction === 'LOWERS');
+/** Model details, kept for anyone who wants them. */
+function About({ explanation: e, targets: t }) {
+  const p = e.prediction;
+  return (
+    <details className="more">
+      <summary>About this estimate</summary>
+      <ul className="plain hint">
+        <li>Model {p.model_version} at {p.prediction_point}. Students are flagged at {pct(p.threshold)} or more; the average student starts at {pct(e.base_probability)}.</li>
+        <li>The influences are SHAP values: each factor&apos;s share of the difference between this student and the average student.</li>
+        {t && t.status !== 'ERROR' && (
+          <>
+            <li>
+              Targets carry the current results forward to the {t.target_label} and look for the {METHOD[t.method] ?? 'smallest changes'},
+              judged by {t.evaluation_kind === 'pass_mark_rule' ? `the ${t.pass_mark}% pass mark on the projected average` : `the ${t.target_label} model`}.
+            </li>
+            {t.caps.length > 0 && <li>Largest change allowed: {t.caps.map((c) => `${c.label.split(',')[0]} +${c.max_increase.toFixed(0)} (${SOURCE[c.source] ?? c.source})`).join('; ')}.</li>}
+          </>
+        )}
+      </ul>
+    </details>
+  );
+}
+
+export default function RiskExplanation({ explanation: e, name, onClose }) {
+  const p = e.prediction;
+  const factors = e.factors || [];
+  const missingLowered = factors.some((f) => f.missing_columns > 0 && f.direction === 'LOWERS');
+  const summary = summarise(factors);
 
   return (
-    <div className="card stack">
-      <h2>Why {name}: {p.prediction_point}</h2>
-      <div>
-        The model starts from <b>{pct(explanation.base_probability)}</b> (its average) and, after this student's inputs,
-        gives <b>{pct(p.probability)}</b>{p.at_risk ? `, at or above its threshold of ${pct(p.threshold)}` : `, below its threshold of ${pct(p.threshold)}`}.
-        Bars to the right raised the estimate; bars to the left lowered it.
+    <section className="card panel" aria-label={`Risk estimate for ${name}`}>
+      <div className="panel-head">
+        <h2>{name}</h2>
+        <RiskBar probability={p.probability} threshold={p.threshold} atRisk={p.at_risk} />
+        <span className={`pill ${p.at_risk ? 'risk' : 'good'}`}>{p.at_risk ? 'At risk' : 'Not flagged'}</span>
+        {onClose && <button type="button" className="btn link" onClick={onClose}>Close</button>}
       </div>
-      {missingPush.length > 0 && (
-        <div className="notice">
-          Missing results lowered this estimate ({missingPush.map((f) => f.group).join(', ')}). The model was trained without missing
-          results, so a missing subject reads to it as a sign of lower risk. Treat this estimate with extra caution.
+
+      {missingLowered && (
+        <Notice tone="warn">Some results are missing. The model reads a missing result as lower risk, so this estimate may be too low.</Notice>
+      )}
+
+      {e.explained ? (
+        <div className="stack">
+          <h3>What moved the estimate</h3>
+          {summary && <div>{summary}</div>}
+          <InfluenceChart items={influenceItems(factors)} />
+          <details className="more">
+            <summary>Results behind each factor</summary>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Factor</th><th>Result</th><th className="num">Value</th><th>Effect</th></tr></thead>
+                <tbody>
+                  {factors.flatMap((f) => f.columns.map((c) => (
+                    <tr key={c.name}>
+                      <td>{f.label}</td>
+                      <td>{c.label}</td>
+                      <td className="num">{c.missing ? <span className="hint">missing</span> : c.value.toFixed(1)}</td>
+                      <td>{c.effect > 0 ? <span className="risk">raised</span> : c.effect < 0 ? <span className="good">lowered</span> : <span className="hint">none</span>}</td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      ) : (
+        <div className="hint">This estimate was made before explanations were added. Run the predictions again to explain it.</div>
+      )}
+
+      {e.targets && (
+        <div className="stack">
+          <h3>Targets</h3>
+          <Targets targets={e.targets} />
         </div>
       )}
 
-      <div className="factor-list">
-        {factors.map((f) => (
-          <div key={f.group}>
-            <div className="factor">
-              <button type="button" className="btn link factor-name" onClick={() => setOpen(open === f.group ? null : f.group)}
-                aria-expanded={open === f.group}>
-                {f.label}{f.all_missing ? ' (missing)' : f.missing_columns ? ` (${f.missing_columns} missing)` : ''}
-              </button>
-              <Bar effect={f.effect} max={max} missing={f.all_missing} />
-              <div className="factor-sentence">{sentence(f)}</div>
-            </div>
-            {open === f.group && (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Input</th><th>Value</th><th>Push</th></tr></thead>
-                  <tbody>
-                    {f.columns.map((c) => (
-                      <tr key={c.name}>
-                        <td>{c.label}</td>
-                        <td>{c.missing ? <span className="hint">missing</span> : c.value.toFixed(1)}</td>
-                        <td>{c.effect > 0 ? 'raised' : c.effect < 0 ? 'lowered' : 'none'} ({c.effect.toFixed(3)})</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="hint">
-        Explanations are SHAP values ({explanation.explainer}). They describe what moved this model's estimate for this student;
-        they are not causes, and they do not predict the effect of an intervention.
-      </div>
-
-      {explanation.targets && (
-        <>
-          <h3>Targets</h3>
-          <Targets targets={explanation.targets} />
-        </>
-      )}
-    </div>
+      <About explanation={e} targets={e.targets} />
+    </section>
   );
 }

@@ -8,6 +8,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
+import { DangerButton } from '../components/ui.jsx';
 
 const EMPTY = { first_name: '', last_name: '', admission_no: '' };
 
@@ -128,7 +129,7 @@ export default function Students() {
                   <td>{s.first_name}</td>
                   <td>{s.last_name}</td>
                   <td>{s.status === 'ACTIVE' ? 'Active' : <span className="warn">Deactivated</span>}</td>
-                  <td><Link to={`/students/${s.student_id}/risk`}>Risk profile</Link></td>
+                  <td><Link to={`/students/${s.student_id}/risk`} state={{ from: `/classes/${classId}/students` }}>Risk profile</Link></td>
                   {canManage && (
                     <td className="actions">
                       <button type="button" className="btn link"
@@ -136,11 +137,11 @@ export default function Students() {
                         Edit
                       </button>
                       {s.status === 'ACTIVE' ? (
-                        <button type="button" className="btn link danger"
+                        <DangerButton icon="ban"
                           onClick={() => window.confirm(`Deactivate ${s.first_name} ${s.last_name}? They leave the class list; their marks and report cards stay.`)
                             && run(SET_STUDENT_STATUS, { student_id: s.student_id, status: 'INACTIVE', _version: s._version }, 'Student deactivated')}>
                           Deactivate
-                        </button>
+                        </DangerButton>
                       ) : (
                         <button type="button" className="btn link"
                           onClick={() => run(SET_STUDENT_STATUS, { student_id: s.student_id, status: 'ACTIVE', _version: s._version }, 'Student reactivated')}>

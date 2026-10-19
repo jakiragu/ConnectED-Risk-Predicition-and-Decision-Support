@@ -17,7 +17,7 @@ const NAV = [
   { to: '/results', label: 'Results' },
   { to: '/attendance', label: 'Attendance', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/report-cards', label: 'Report cards', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
-  { to: '/model-inputs', label: 'Model inputs', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/risk', label: 'Risk prediction', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/school-risk', label: 'School risk', show: ({ isAdmin }) => isAdmin },
   { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
   { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },

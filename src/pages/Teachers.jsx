@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { useSync } from '../offline/useSync.js';
+import { DangerButton } from '../components/ui.jsx';
 
 const ROLES = ['Teacher', 'Admin'];
 const EMPTY = { first_name: '', last_name: '', email: '', role: 'Teacher' };
@@ -118,8 +119,8 @@ function Manage({ teacher, classes, isSelf, run }) {
                     <td>{byId.get(a.class_id)?.name || a.class_id}</td>
                     <td>{a.subject}</td>
                     <td className="actions">
-                      <button type="button" className="btn link danger"
-                        onClick={() => setAssignments(assignments.filter((x) => x !== a))}>Remove</button>
+                      <DangerButton icon="x"
+                        onClick={() => setAssignments(assignments.filter((x) => x !== a))}>Remove</DangerButton>
                     </td>
                   </tr>
                 ))}
@@ -160,11 +161,11 @@ function Manage({ teacher, classes, isSelf, run }) {
               Reset password
             </button>
             {!isSelf && (
-              <button type="button" className="btn link danger"
+              <DangerButton icon="ban"
                 onClick={() => window.confirm(`Deactivate ${fullName(teacher)}? They can no longer log in. Their marks stay.`)
                   && run(DEACTIVATE_TEACHER, { input: ref }, `${fullName(teacher)} deactivated`)}>
                 Deactivate account
-              </button>
+              </DangerButton>
             )}
           </>
         ) : (

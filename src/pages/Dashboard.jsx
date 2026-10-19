@@ -7,7 +7,6 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
-import '../styles/decision.css';
 
 const pct = (p) => `${Math.round(p * 100)}%`;
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '');
@@ -84,8 +83,8 @@ export default function Dashboard() {
                 <li key={s.student_id}>
                   <span>{s.first_name} {s.last_name}, {s.admission_no}<span className="hint"> {className.get(s.class_id) ?? ''}</span></span>
                   <span className="actions">
-                    <Link to={`/students/${s.student_id}/risk`}>Risk profile</Link>
-                    <Link to={`/students/${s.student_id}/interventions`}>Log intervention</Link>
+                    <Link to={`/students/${s.student_id}/risk`} state={{ from: '/dashboard' }}>Risk profile</Link>
+                    <Link to={`/students/${s.student_id}/interventions`} state={{ from: '/dashboard' }}>Log intervention</Link>
                   </span>
                 </li>
               ))}
@@ -107,7 +106,7 @@ export default function Dashboard() {
                 <ul className="plain">
                   {items.map((i) => (
                     <li key={i.intervention_id}>
-                      {i.method}, <Link to={`/students/${i.student_id}/risk`}><b>{i.student_name}</b></Link>
+                      {i.method}, <Link to={`/students/${i.student_id}/risk`} state={{ from: '/dashboard' }}><b>{i.student_name}</b></Link>
                       <span className="hint"> {i.factor} · since {i.started_on}</span>
                     </li>
                   ))}
@@ -122,7 +121,7 @@ export default function Dashboard() {
             <div className="cards">
               {d.at_risk_students.map((c) => (
                 <div key={c.student.student_id} className="card student-card">
-                  <Link to={`/students/${c.student.student_id}/risk`} className="who">
+                  <Link to={`/students/${c.student.student_id}/risk`} state={{ from: '/dashboard' }} className="who">
                     {c.student.first_name} {c.student.last_name}, {c.student.admission_no}, {c.student.class_name}
                   </Link>
                   <div>Estimated risk: <b className="risk">{pct(c.latest.probability)}</b> <span className="hint">at {c.latest.label}</span></div>
@@ -136,7 +135,7 @@ export default function Dashboard() {
                     ) : <span className="hint">{c.latest.targets_status === 'MAINTAIN' ? 'Keep current results' : 'No target for your subjects'}</span>}
                   </div>
                   <div>Current intervention: {c.interventions.length ? <b>{c.interventions.join('; ')}</b> : <span className="hint">none yet</span>}</div>
-                  <div className="actions"><Link to={`/students/${c.student.student_id}/interventions`}>Log or update interventions</Link></div>
+                  <div className="actions"><Link to={`/students/${c.student.student_id}/interventions`} state={{ from: '/dashboard' }}>Log or update interventions</Link></div>
                 </div>
               ))}
             </div>

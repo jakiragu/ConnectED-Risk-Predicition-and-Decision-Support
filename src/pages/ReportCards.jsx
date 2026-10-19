@@ -4,6 +4,7 @@ import { CHECKPOINTS, CHECKPOINT_LABEL } from '@gradebook/domain/results';
 import { gql } from '../api/graphql.js';
 import { LIST_REPORT_CARDS, LIST_RESULT_SETS, REQUEST_REPORT_CARD_DOWNLOAD } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Offline } from '../components/ui.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
 import { db } from '../offline/db.js';
@@ -103,7 +104,7 @@ export default function ReportCards() {
     }
   }
 
-  if (!online) return <div className="notice">Downloading report cards needs a connection.</div>;
+  if (!online) return <Offline what="Downloading report cards" />;
   if (!isAdmin && mine.length === 0) {
     return <div className="notice">Report cards are available to administrators and class teachers.</div>;
   }
@@ -116,11 +117,11 @@ export default function ReportCards() {
       <div className="page-head">
         <h1>Report cards</h1>
         <Select aria-label="Term" value={termId} onChange={(v) => go({ term: v })}
-          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} placeholder="Choose a term" style={{ width: 170 }} />
+          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} placeholder="Choose a term" />
         <Select aria-label="Checkpoint" value={checkpoint} onChange={(v) => go({ cp: v })}
-          options={CHECKPOINTS.map((c) => ({ value: c, label: CHECKPOINT_LABEL[c] }))} style={{ width: 160 }} />
+          options={CHECKPOINTS.map((c) => ({ value: c, label: CHECKPOINT_LABEL[c] }))} />
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
-          options={mine.map((c) => ({ value: c.class_id, label: c.name }))} style={{ width: 190 }} disabled={!isAdmin && mine.length === 1} />
+          options={mine.map((c) => ({ value: c.class_id, label: c.name }))} disabled={!isAdmin && mine.length === 1} />
       </div>
 
       {error && <div className="card error-card">{error}</div>}
