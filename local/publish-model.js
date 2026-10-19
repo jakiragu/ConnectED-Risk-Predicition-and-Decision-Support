@@ -12,7 +12,9 @@ import { invoke, scorerFunction } from '../backend/library/invoke.js';
  * uses. The same steps run locally (MinIO / s3rver) and against AWS (with AWS
  * credentials and MODEL_BUCKET set):
  *   1. check the folder: manifest, one model per prediction point, the
- *      feature contract's columns in order, XGBoost binary:logistic, checksums
+ *      feature contract's columns in order, XGBoost binary:logistic, checksums,
+ *      and the counterfactual statistics if the package has them
+ *      (counterfactual-stats.json: permitted-change caps and peer progression)
  *   2. upload it to models/<model_version>/ (a version is never overwritten)
  *   3. ask the scorer to load that version and score sample rows (selftest)
  *   4. point models/current.json at it
@@ -82,6 +84,34 @@ function check(folder) {
     }
     files.push({ point, file: spec.file, raw });
   }
+
+  const cf = manifest.counterfactual_stats;
+  if (cf) {
+    const path = join(folder, cf.file || '');
+    if (!cf.file || !existsSync(path)) fail(`counterfactual statistics ${cf.file} not found`);
+    const raw = readFileSync(path);
+    if (cf.sha256 && cf.sha256 !== sha256(raw)) fail(`${cf.file} does not match its sha256 in the manifest`);
+    cf.sha256 = sha256(raw);
+    let stats;
+    try {
+      stats = JSON.parse(raw.toString('utf8'));
+    } catch {
+      fail(`${cf.file} is not valid JSON`);
+    }
+    const expected = ['T1M>T1F', 'T1F>T2M', 'T2M>T2F', 'T2F>T3M', 'T3M>T3F'];
+    const found = Object.keys(stats?.transitions || {});
+    const unknown = found.filter((t) => !expected.includes(t));
+    if (unknown.length) fail(`${cf.file}: unknown transitions ${unknown.join(', ')}`);
+    for (const [name, t] of Object.entries(stats.transitions)) {
+      for (const [group, table] of Object.entries(t.peers || {})) {
+        if (!Array.isArray(table) || table.length !== 101) fail(`${cf.file}: ${name} ${group} peers must have one entry per centre 0-100`);
+      }
+      for (const [group, cap] of Object.entries(t.caps || {})) {
+        if (cap !== null && !(typeof cap === 'number' && cap >= 0)) fail(`${cf.file}: ${name} ${group} cap must be a non-negative number or null`);
+      }
+    }
+    files.push({ point: 'counterfactual statistics', file: cf.file, raw });
+  }
   return { manifest, files };
 }
 
@@ -90,6 +120,7 @@ async function selftest(version) {
   for (const [point, r] of Object.entries(report.points)) {
     console.log(`  selftest ${point}: ${r.features} features, threshold ${r.threshold}, sample probabilities ${r.sample.join(' / ')}`);
   }
+  console.log(`  selftest counterfactual statistics: ${report.counterfactual_stats ? 'loaded and checked' : 'none in this package (static caps, no peer groups)'}`);
 }
 
 async function point(version) {
@@ -124,7 +155,8 @@ if (args[0] === '--use') {
   if (existing) {
     // A published version never changes: the scorer caches it, and predictions name it.
     const theirs = JSON.parse(existing.toString('utf8'));
-    const unchanged = POINT_NAMES.every((p) => theirs.points?.[p]?.sha256 === manifest.points[p].sha256);
+    const unchanged = POINT_NAMES.every((p) => theirs.points?.[p]?.sha256 === manifest.points[p].sha256)
+      && (theirs.counterfactual_stats?.sha256 ?? null) === (manifest.counterfactual_stats?.sha256 ?? null);
     if (!unchanged) fail(`version ${version} is already published with different files; give the new model a new model_version`);
     if (!same(theirs, manifest)) fail(`version ${version} is already published with a different manifest; give it a new model_version`);
     console.log(`  ${version} is already uploaded, identical`);

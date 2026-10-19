@@ -444,6 +444,7 @@ type FeatureReadiness {
 
 enum RiskRunStatus { QUEUED RUNNING COMPLETE FAILED SKIPPED }
 enum EffectDirection { RAISES LOWERS NONE }
+enum TargetsStatus { FOUND FALLBACK MAINTAIN NONE ERROR }
 
 type RiskPrediction {
   student_id: ID!
@@ -463,6 +464,64 @@ type RiskPrediction {
   predicted_at: AWSDateTime!
   explained: Boolean!          # false for predictions made before explanations were added
   top_factors: [RiskFactorSummary!]!   # the subjects / attendance that pushed hardest
+  targets_status: TargetsStatus        # null when the student is not flagged (no targets are made)
+  best_target: [RiskTargetChange!]!    # the first option's changes (FOUND or FALLBACK); empty otherwise
+}
+
+# Counterfactual targets for the NEXT checkpoint. The student's current results
+# are carried forward as a hypothetical baseline; a target is how much higher a
+# result would need to be there for the next checkpoint's model (at T3M: the
+# pass mark on the projected Term 3 Final average) to stop flagging them.
+#   FOUND     DiCE found targets that clear it within the permitted changes
+#   FALLBACK  DiCE could not; targets from comparable students' progress (may not clear it)
+#   MAINTAIN  keeping the current results already clears it
+#   NONE      nothing can be raised;  ERROR  the targets could not be worked out
+type RiskTargetChange {
+  column: String!              # the next checkpoint's input, e.g. T1F_Kiswahili
+  label: String!               # e.g. "Kiswahili, Term 1 End-term exam"
+  group: String!               # subject or Attendance
+  kind: String!                # score | attendance
+  from: Float!                 # the baseline (carried forward)
+  to: Float!
+  gain: Float!
+  basis: String                # fallback only: peer | cap
+  peer_window: Int             # fallback only: the +- window of the peer group
+  peer_count: Int
+  peer_change: Float           # fallback only: the peers' change at the target percentile
+}
+
+type RiskTargetOption {
+  method: String!              # dice-random | peer-progression
+  score: Float                 # next model's probability, or the projected T3F average
+  at_risk: Boolean!            # whether the projection is still at risk
+  changes: [RiskTargetChange!]!
+}
+
+type RiskTargetCap {
+  column: String!
+  label: String!
+  max_increase: Float!
+  max_value: Float!
+  source: String!              # data | static | ceiling
+}
+
+type RiskTargets {
+  status: TargetsStatus!
+  reason: String
+  method: String
+  target_point: String         # T1F | T2M | T2F | T3M | T3F
+  target_label: String
+  evaluation_kind: String      # model | pass_mark_rule
+  model_point: String          # the model that judged the targets
+  threshold: Float
+  pass_mark: Float             # T3M only
+  missing_score_policy: String # T3M only
+  baseline_score: Float        # the carried-forward baseline's probability or projected average
+  baseline_at_risk: Boolean
+  dice_reason: String          # why DiCE found nothing (FALLBACK / NONE)
+  stats_available: Boolean     # the model package has data-derived caps and peer statistics
+  caps: [RiskTargetCap!]!
+  options: [RiskTargetOption!]!
 }
 
 # SHAP explanations. An effect is a push on the model's output in log-odds:
@@ -504,6 +563,7 @@ type RiskExplanation {
   explained: Boolean!
   base_probability: Float      # the model's starting point before any input (its average output)
   factors: [RiskFactor!]!      # largest push first
+  targets: RiskTargets         # null when the student is not flagged
 }
 
 type ImportanceItem {
@@ -547,6 +607,11 @@ type RiskRun {
   threshold: Float
   students: Int
   at_risk: Int
+  with_targets: Int            # flagged students with targets (FOUND + FALLBACK + MAINTAIN)
+  targets_found: Int
+  targets_fallback: Int
+  targets_maintain: Int
+  targets_failed: Int
   error: String
   started_at: AWSDateTime
   finished_at: AWSDateTime

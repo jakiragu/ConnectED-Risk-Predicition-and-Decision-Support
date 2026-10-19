@@ -16,3 +16,8 @@
 .chip.raises { border-color: #b3412e; color: #b3412e; }
 .chip.lowers { border-color: #2f6f4f; color: #2f6f4f; }
 .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-4); }
+
+/* Counterfactual targets for the next checkpoint */
+.chip.target { border-color: var(--ink); }
+.target-options { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-2); }
+.target-changes { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }

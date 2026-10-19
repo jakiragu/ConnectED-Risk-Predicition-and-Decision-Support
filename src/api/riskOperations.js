@@ -1,9 +1,11 @@
-// GraphQL documents for risk predictions, their explanations and the risk model.
+// GraphQL documents for risk predictions, their explanations and targets, and the risk model.
 
 const FACTOR_SUMMARY = `top_factors { group label effect direction share all_missing }`;
+const CHANGE_FIELDS = `column label group kind from to gain basis peer_window peer_count peer_change`;
 const PREDICTION_FIELDS = `
   student_id admission_no first_name last_name class_id academic_year prediction_point probability at_risk threshold
   model_version missing_scores missing_attendance run_id predicted_at explained ${FACTOR_SUMMARY}
+  targets_status best_target { ${CHANGE_FIELDS} }
 `;
 
 export const LIST_RISK_PREDICTIONS = `
@@ -22,6 +24,12 @@ export const GET_RISK_EXPLANATION = `
         group label effect direction share missing_columns all_missing
         columns { name label group value missing effect direction }
       }
+      targets {
+        status reason method target_point target_label evaluation_kind model_point threshold pass_mark
+        missing_score_policy baseline_score baseline_at_risk dice_reason stats_available
+        caps { column label max_increase max_value source }
+        options { method score at_risk changes { ${CHANGE_FIELDS} } }
+      }
     }
   }`;
 
@@ -37,7 +45,7 @@ export const GET_RISK_IMPORTANCE = `
 export const GET_RISK_RUN = `
   query GetRiskRun($school_id: ID!, $class_id: ID!, $term_id: ID!, $checkpoint: Checkpoint!) {
     getRiskRun(school_id: $school_id, class_id: $class_id, term_id: $term_id, checkpoint: $checkpoint) {
-      run_id status trigger model_version threshold students at_risk error started_at finished_at
+      run_id status trigger model_version threshold students at_risk with_targets targets_found targets_fallback targets_maintain targets_failed error started_at finished_at
     }
   }`;
 

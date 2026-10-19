@@ -10,5 +10,5 @@ export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '/src': appSource } },
   server: { port: 5173 },
-  optimizeDeps: { include: ['@gradebook/domain/assessment', '@gradebook/domain/score', '@gradebook/domain/conflict', '@gradebook/domain/ids', '@gradebook/domain/results', '@gradebook/domain/calendar', '@gradebook/domain/attendance', '@gradebook/domain/explanations'] },
+  optimizeDeps: { include: ['@gradebook/domain/assessment', '@gradebook/domain/score', '@gradebook/domain/conflict', '@gradebook/domain/ids', '@gradebook/domain/results', '@gradebook/domain/calendar', '@gradebook/domain/attendance', '@gradebook/domain/explanations', '@gradebook/domain/targets'] },
 });

@@ -5,6 +5,8 @@ way locally (MinIO / s3rver) and on AWS (S3).
     models/current.json                  {"model_version": "...", "prefix": "models/<version>/"}
     models/<version>/manifest.json       per point: file, features, threshold
     models/<version>/<point>.json        XGBoost model in its portable JSON format
+    models/<version>/counterfactual-stats.json   optional: permitted-change caps and peer
+                                         statistics for counterfactual targets
 
 A model is replaced by publishing a new version and moving current.json to it
 (local/publish-model.js). Loaded models are cached per warm Lambda; the pointer
@@ -76,6 +78,20 @@ class LoadedModel:
         if self.manifest.get("model_version") != version:
             raise RuntimeError(f"manifest says {self.manifest.get('model_version')}, expected {version}")
         self.boosters = {}
+        self._stats = None
+        self._stats_loaded = False
+
+    def counterfactual_stats(self):
+        """The package's counterfactual statistics, or None when it has none (static caps, no peers)."""
+        if not self._stats_loaded:
+            spec = self.manifest.get("counterfactual_stats")
+            if spec:
+                raw = _get(f"{self.prefix}{spec['file']}")
+                if spec.get("sha256") and hashlib.sha256(raw).hexdigest() != spec["sha256"]:
+                    raise RuntimeError(f"{spec['file']} does not match the checksum in the manifest")
+                self._stats = json.loads(raw)
+            self._stats_loaded = True
+        return self._stats
 
     def point(self, point):
         spec = self.manifest["points"].get(point)

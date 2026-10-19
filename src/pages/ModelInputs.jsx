@@ -9,6 +9,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import ImportanceBars from '../components/ImportanceBars.jsx';
 import RiskExplanation from '../components/RiskExplanation.jsx';
+import { targetText } from '@gradebook/domain/targets';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -32,8 +33,10 @@ const pct = (p) => `${(p * 100).toFixed(1)}%`;
  * subject and attendance from the start of the school year (missing values are
  * passed as missing). Output: the model's probability, whether it is at or
  * above the model's threshold, and its SHAP explanation: which subjects and
- * attendance pushed the estimate up or down. Below the table: what drives the
- * model overall (global importance), for the model and for this class.
+ * attendance pushed the estimate up or down; for flagged students, targets for
+ * the next checkpoint (DiCE against the next checkpoint's model, or the pass mark
+ * at T3M; peer progression when DiCE finds none). Below the table: what drives
+ * the model overall (global importance), for the model and for this class.
  * Predictions are made automatically when the checkpoint's results are
  * published; administrators can run them again, for example after the model is
  * replaced. The output is a decision-support signal, not a judgement about a
@@ -211,7 +214,10 @@ export default function ModelInputs() {
             {run ? (
               <span className={run.status === 'FAILED' ? 'warn' : ''}>
                 Predictions: {RUN_TEXT[run.status] || run.status}
-                {run.status === 'COMPLETE' && ` · ${run.at_risk} of ${run.students} flagged · ${run.model_version}`}
+                {run.status === 'COMPLETE' && ` · ${run.at_risk} of ${run.students} flagged`}
+                {run.status === 'COMPLETE' && run.targets_found != null &&
+                  ` (targets: ${run.targets_found} DiCE, ${run.targets_fallback} peer progression, ${run.targets_maintain} keep current${run.targets_failed ? `, ${run.targets_failed} failed` : ''})`}
+                {run.status === 'COMPLETE' && ` · ${run.model_version}`}
                 {run.status === 'FAILED' && ` · ${run.error}`}
               </span>
             ) : (
@@ -228,7 +234,7 @@ export default function ModelInputs() {
               <thead>
                 <tr>
                   <th>Adm no</th><th>Student</th><th>Missing results</th><th>Missing attendance</th>
-                  <th>Model probability</th><th>Signal</th><th>Main factors</th><th>Action</th>
+                  <th>Model probability</th><th>Signal</th><th>Main factors</th><th>Target</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -258,6 +264,19 @@ export default function ModelInputs() {
                             ))}
                           </span>
                         ) : p ? <span className="hint">Not explained</span> : <span className="hint">—</span>}
+                      </td>
+                      <td>
+                        {!p?.at_risk ? <span className="hint">—</span>
+                          : p.targets_status === 'FOUND' || p.targets_status === 'FALLBACK' ? (
+                            <span className="chips">
+                              {p.best_target.map((c) => <span key={c.column} className="chip target">{targetText(c)}</span>)}
+                              {p.targets_status === 'FALLBACK' && <span className="hint">from peer progress</span>}
+                            </span>
+                          )
+                          : p.targets_status === 'MAINTAIN' ? <span className="hint">Keep current results</span>
+                          : p.targets_status === 'NONE' ? <span className="hint">No target</span>
+                          : p.targets_status === 'ERROR' ? <span className="warn">Not worked out</span>
+                          : <span className="hint">Run predictions again</span>}
                       </td>
                       <td className="actions">
                         {p && <button type="button" className="btn link" onClick={() => explainFor(s)}>Explain</button>}

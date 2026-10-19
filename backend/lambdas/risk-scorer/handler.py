@@ -1,6 +1,6 @@
 """
-The risk scorer: model inputs in; at-risk probabilities and their SHAP
-explanations out. Nothing else.
+The risk scorer: model inputs in; at-risk probabilities, their SHAP
+explanations and, for at-risk students, counterfactual targets out. Nothing else.
 
 It receives feature rows built by the gradebook (risk-prediction Lambda) for
 one prediction point, without names or student ids (rows carry an opaque
@@ -17,6 +17,13 @@ Actions
   score     {prediction_point, rows: [{row_id, features: {column: number|null}}]}
             -> {model_version, prediction_point, threshold, explainer,
                 predictions: [{row_id, probability, at_risk, base_value, contributions: {column: number}}]}
+  counterfactuals
+            {prediction_point, model_version, pass_mark, missing_score_policy,
+             rows: [{row_id, features, attendance: {attended, counted, next_school_days}}]}
+            -> {model_version, target_point, evaluation, settings, stats, results: [...]}
+            Targets for the NEXT checkpoint, judged by the next checkpoint's model
+            (at T3M by the pass-mark rule on the projected Term 3 Final);
+            see counterfactuals.py.
   selftest  {model_version}  load every point of that version and score sample rows
   describe  {}               the current model's manifest summary
 """
@@ -25,6 +32,7 @@ import math
 import numpy as np
 import xgboost
 
+import counterfactuals as cf
 import model_store
 
 EXPLAINER = "xgboost-treeshap"
@@ -83,6 +91,42 @@ def score(event):
     }
 
 
+def counterfactual_targets(event):
+    point = event.get("prediction_point")
+    if point not in cf.NEXT:
+        raise InputError(f"no counterfactual targets for prediction point {point}")
+    model = model_store.load()
+    expected = event.get("model_version")
+    if expected and expected != model.version:
+        raise InputError(f"the current model is {model.version}, not {expected}; run the predictions again")
+    current = model.point(point)
+    nxt = cf.NEXT[point]
+    if nxt == cf.FINAL:
+        try:
+            evaluation = cf.PassMarkRule(event.get("pass_mark"), event.get("missing_score_policy"))
+        except ValueError as e:
+            raise InputError(str(e)) from e
+    else:
+        spec = model.point(nxt)
+        evaluation = cf.ModelEvaluation(nxt, model.booster(nxt), spec["features"], float(spec["threshold"]))
+    stats = model.counterfactual_stats()
+    rules = cf.settings()
+    results = []
+    for row in event.get("rows") or []:
+        _matrix([row], current["features"])  # the same input checks as scoring
+        out = cf.generate(point, row.get("features") or {}, evaluation, stats, row.get("attendance"), rules)
+        results.append({"row_id": row.get("row_id"), **out})
+    return {
+        "model_version": model.version,
+        "prediction_point": point,
+        "target_point": nxt,
+        "evaluation": evaluation.describe(),
+        "settings": rules,
+        "stats": {"available": stats is not None, "settings": (stats or {}).get("settings")},
+        "results": results,
+    }
+
+
 def selftest(event):
     version = event.get("model_version")
     if not version:
@@ -99,7 +143,9 @@ def selftest(event):
         if not all(0.0 <= float(x) <= 1.0 for x in p):
             raise RuntimeError(f"{point}: probabilities outside [0, 1]")
         report[point] = {"features": len(features), "threshold": spec["threshold"], "sample": [round(float(x), 4) for x in p]}
-    return {"model_version": version, "ok": True, "points": report}
+    model.counterfactual_stats()  # loads and checks the statistics when the package has them
+    return {"model_version": version, "ok": True, "points": report,
+            "counterfactual_stats": bool(model.manifest.get("counterfactual_stats"))}
 
 
 def describe(_event):
@@ -111,6 +157,7 @@ def describe(_event):
         "xgboost_version": m.get("xgboost_version"),
         "created_at": m.get("created_at"),
         "source": m.get("source"),
+        "counterfactual_stats": bool(m.get("counterfactual_stats")),
         "points": [
             {
                 "point": p,
@@ -124,7 +171,7 @@ def describe(_event):
     }
 
 
-ACTIONS = {"score": score, "selftest": selftest, "describe": describe}
+ACTIONS = {"score": score, "counterfactuals": counterfactual_targets, "selftest": selftest, "describe": describe}
 
 
 def handler(event, context=None):

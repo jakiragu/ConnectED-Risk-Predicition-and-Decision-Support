@@ -1,4 +1,4 @@
-import { pointFor } from '../../library/features.js';
+import { nextPeriodSchoolDays, pointFor } from '../../library/features.js';
 import { ulid } from '../../library/ids.js';
 import { invoke, scorerFunction } from '../../library/invoke.js';
 import * as features from '../../library/featureStore.js';
@@ -9,8 +9,15 @@ import * as risk from '../../library/riskRepo.js';
 /**
  * Risk prediction for one published class checkpoint:
  *   ResultsPublished (Mid-term or End-term)  ->  model inputs for each student
- *   ->  the risk scorer (current published model)  ->  RiskPrediction per student,
- *       with the SHAP explanation of each prediction
+ *   ->  the risk scorer (current published model)  ->  probability + SHAP explanation
+ *   ->  for students the model flags: counterfactual targets for the NEXT
+ *       checkpoint (the scorer's counterfactuals action: the next checkpoint's
+ *       model, or at T3M the pass-mark rule on the projected Term 3 Final)
+ *   ->  RiskPrediction per student
+ *
+ * Targets are worked out after the predictions themselves; if that fails, the
+ * predictions are still stored, with the targets marked ERROR and the reason.
+ * The scorer only ever receives row numbers, never student identities.
  *
  * Triggered by the EventBridge rule in infra/event-rules.json, or by an
  * administrator re-running it ({ action: 'run', ... } from the risk service).
@@ -20,6 +27,7 @@ import * as risk from '../../library/riskRepo.js';
  * A failure here never touches the published results.
  */
 const BATCH = 200;
+const CF_BATCH = 25;
 const log = (o) => console.log(JSON.stringify({ level: 'info', svc: 'risk-prediction', ...o }));
 
 function requestOf(event) {
@@ -38,6 +46,57 @@ function requestOf(event) {
     };
   }
   throw new Error('Expected a ResultsPublished event or { action: "run" }');
+}
+
+/**
+ * Counterfactual targets for the flagged rows. Never throws: a failure is
+ * recorded on each affected row so the predictions can still be stored.
+ */
+async function targetsFor({ schoolId, run, point, model, students, flagged, terms, term }) {
+  const out = new Map();
+  if (!flagged.length) return out;
+  const rule = await platform.gradeRule(schoolId, term.term_id).catch(() => null);
+  const nextDays = nextPeriodSchoolDays(point, terms);
+  for (let i = 0; i < flagged.length; i += CF_BATCH) {
+    const batch = flagged.slice(i, i + CF_BATCH);
+    try {
+      const res = await invoke(scorerFunction(), {
+        action: 'counterfactuals',
+        prediction_point: point,
+        model_version: model.model_version,
+        pass_mark: rule?.pass_mark ?? null,
+        missing_score_policy: rule?.missing_score_policy ?? null,
+        rows: batch.map((p) => {
+          const row = students[p.row_id].row;
+          const totals = row.attendance_totals?.[point] ?? {};
+          return {
+            row_id: p.row_id,
+            features: row.values,
+            attendance: { attended: totals.attended ?? null, counted: totals.counted ?? null, next_school_days: nextDays },
+          };
+        }),
+      });
+      for (const r of res.results) {
+        out.set(r.row_id, {
+          status: r.status,
+          reason: r.reason ?? null,
+          method: r.method ?? null,
+          target_point: r.target_point,
+          evaluation: r.evaluation,
+          caps: r.caps,
+          dice: r.dice ?? null,
+          options: r.options || [],
+          settings: res.settings,
+          stats_available: res.stats?.available ?? false,
+          model_version: res.model_version,
+        });
+      }
+    } catch (e) {
+      log({ level: 'error', msg: 'counterfactual targets failed', run_id: run.run_id, err: e.message });
+      for (const p of batch) out.set(p.row_id, { status: 'ERROR', reason: e.message, method: null, options: [] });
+    }
+  }
+  return out;
 }
 
 export async function handler(event) {
@@ -105,6 +164,7 @@ export async function handler(event) {
     const predictions = scored.map((p) => {
       const { student, row } = students[p.row_id];
       return {
+        row_id: p.row_id,
         student_id: student.student_id,
         class_id: req.class_id,
         term_id: req.term_id,
@@ -123,16 +183,35 @@ export async function handler(event) {
         explainer: model.explainer,
         shap_base_value: p.base_value ?? null,
         shap_values: p.contributions ?? null,
+        counterfactuals: null,
         predicted_at: predictedAt,
       };
     });
-    await risk.putPredictions(schoolId, predictions);
+    // The predictions are stored first; targets are added for flagged students afterwards.
+    const strip = ({ row_id, ...rest }) => rest;
+    await risk.putPredictions(schoolId, predictions.map(strip));
+
+    const flagged = scored.filter((p) => p.at_risk);
+    const targets = await targetsFor({ schoolId, run, point, model, students, flagged, terms, term });
+    if (targets.size) {
+      const withTargets = predictions
+        .filter((p) => targets.has(p.row_id))
+        .map((p) => ({ ...strip(p), counterfactuals: { ...targets.get(p.row_id), generated_at: new Date().toISOString() } }));
+      await risk.putPredictions(schoolId, withTargets);
+    }
+
+    const count = (status) => [...targets.values()].filter((t) => t.status === status).length;
     const done = await risk.finishRun(schoolId, run, {
       status: risk.RUN.COMPLETE,
       model_version: model?.model_version ?? null,
       threshold: model?.threshold ?? null,
       students: predictions.length,
-      at_risk: predictions.filter((p) => p.at_risk).length,
+      at_risk: flagged.length,
+      with_targets: count('FOUND') + count('FALLBACK') + count('MAINTAIN'),
+      targets_found: count('FOUND'),
+      targets_fallback: count('FALLBACK'),
+      targets_maintain: count('MAINTAIN'),
+      targets_failed: count('ERROR'),
       error: null,
     });
     log({ msg: 'predicted', run_id: run.run_id, point, class: req.class_id, students: predictions.length, model: model?.model_version });

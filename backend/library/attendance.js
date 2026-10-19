@@ -30,14 +30,15 @@ export function periodSummary(entry, schoolDays) {
 /**
  * Attendance from the first period of the year up to and including the last
  * one given. Every period must have an entry; otherwise the value is unknown
- * (null) rather than a guess, and the missing periods are named.
+ * (null) rather than a guess, and the missing periods are named. The totals
+ * behind the percentage (days attended, days counted) come back with it.
  *
  * @param {{key:string, school_days:number}[]} periods   in calendar order
  * @param {Map<string, {days_attended:number, days_excused:number}>} entries  by period key
  */
 export function cumulativeAttendance(periods, entries) {
   const missing = periods.filter((p) => !entries.has(p.key)).map((p) => p.key);
-  if (!periods.length || missing.length) return { percentage: null, missing };
+  if (!periods.length || missing.length) return { percentage: null, missing, attended: null, counted: null };
   let attended = 0;
   let counted = 0;
   for (const p of periods) {
@@ -45,5 +46,5 @@ export function cumulativeAttendance(periods, entries) {
     attended += e.days_attended;
     counted += p.school_days - e.days_excused;
   }
-  return { percentage: counted > 0 ? roundHalfUp((attended / counted) * 100) : null, missing: [] };
+  return { percentage: counted > 0 ? roundHalfUp((attended / counted) * 100) : null, missing: [], attended, counted };
 }

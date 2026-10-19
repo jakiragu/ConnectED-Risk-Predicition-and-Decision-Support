@@ -30,6 +30,26 @@ export const POINT_NAMES = PREDICTION_POINTS.map((p) => p.point);
 
 export const pointOf = (point) => PREDICTION_POINTS.find((p) => p.point === point) || null;
 
+/**
+ * The checkpoint after each prediction point, for counterfactual targets, and
+ * the attendance period that leads up to it (term_number, period). T3F is the
+ * Term 3 End-term: the outcome, judged by the pass-mark rule, not by a model.
+ */
+export const NEXT_CHECKPOINT = {
+  T1M: { point: 'T1F', term_number: 1, period: 'ENDTERM' },
+  T1F: { point: 'T2M', term_number: 2, period: 'MIDTERM' },
+  T2M: { point: 'T2F', term_number: 2, period: 'ENDTERM' },
+  T2F: { point: 'T3M', term_number: 3, period: 'MIDTERM' },
+  T3M: { point: 'T3F', term_number: 3, period: 'ENDTERM' },
+};
+
+/** The school days of the attendance period before the next checkpoint, or null if that term is not set up. */
+export function nextPeriodSchoolDays(point, termsByNumber) {
+  const next = NEXT_CHECKPOINT[point];
+  const term = next && termsByNumber.get(next.term_number);
+  return term ? attendancePeriods(term).find((p) => p.period === next.period)?.school_days ?? null : null;
+}
+
 /** The prediction point a published checkpoint corresponds to, or null (Opener, Term 3 End-term). */
 export const pointFor = (termNumber, checkpoint) =>
   PREDICTION_POINTS.find((p) => p.term_number === Number(termNumber) && p.checkpoint === checkpoint)?.point ?? null;
@@ -85,13 +105,15 @@ function resultFor(history, termId, checkpoint) {
  * @param {Map<number, object>} input.termsByNumber   the school year's terms by term_number
  * @param {object[]} input.history                the student's StudentResult rows
  * @param {object[]} input.attendance             the student's attendance entries for the year
- * @returns {{columns:string[], values:object, missing:{scores:string[], attendance:string[], notes:string[]}, sources:object}}
+ * @returns {{columns:string[], values:object, missing:{scores:string[], attendance:string[], notes:string[]}, sources:object,
+ *           attendance_totals:object}}  attendance_totals: per point, {attended, counted} behind the year-to-date percentage
  */
 export function buildFeatureRow({ point, termsByNumber, history, attendance }) {
   const columns = columnsFor(point);
   const values = Object.fromEntries(columns.map((c) => [c, null]));
   const missing = { scores: [], attendance: [], notes: [] };
   const sources = {};
+  const attendanceTotals = {};
 
   const byPeriod = new Map(attendance.map((e) => [`${e.term_id}#${e.period}`, e]));
   for (const p of pointsUpTo(point)) {
@@ -126,9 +148,10 @@ export function buildFeatureRow({ point, termsByNumber, history, attendance }) {
       }
     } else {
       values[col] = result.percentage;
+      attendanceTotals[p.point] = { attended: result.attended, counted: result.counted };
     }
   }
-  return { columns, values, missing, sources };
+  return { columns, values, missing, sources, attendance_totals: attendanceTotals };
 }
 
 /** One CSV line in the contract's column order; missing values are empty. */

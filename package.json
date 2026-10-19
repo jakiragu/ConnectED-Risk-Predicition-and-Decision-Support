@@ -18,7 +18,7 @@
     "web": "npm run dev --workspace @connected/web",
     "build:web": "npm run build --workspace @connected/web",
     "test": "node --test tests/*.test.js",
-    "setup": "npm run db:infra && sleep 3 && npm run aws:setup && npm run db:seed && npm run db:verify",
+    "setup": "npm run db:infra && npm run aws:setup && npm run db:seed && npm run db:verify",
     "features:check": "node local/check-feature-contract.js",
     "features:export": "node local/export-features.js",
     "history:backfill": "node local/backfill-history.js",
