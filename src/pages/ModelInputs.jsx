@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { gql } from '../api/graphql.js';
 import { GET_FEATURE_READINESS, GET_STUDENT_FEATURES, LIST_TERMS_FULL } from '../api/calendarOperations.js';
 import {
@@ -280,6 +280,7 @@ export default function ModelInputs() {
                       </td>
                       <td className="actions">
                         {p && <button type="button" className="btn link" onClick={() => explainFor(s)}>Explain</button>}
+                        <Link to={`/students/${s.student_id}/risk`}>Profile</Link>
                         <button type="button" className="btn link" onClick={() => open(s)}>View inputs</button>
                       </td>
                     </tr>

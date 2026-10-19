@@ -3,6 +3,7 @@ import * as outbox from './outbox.js';
 import { STATUS, backoffMs } from './outbox.js';
 import { gql } from '../api/graphql.js';
 import { CREATE_ASSESSMENT, LIST_ASSESSMENTS, LIST_SCORES, SUBMIT_SCORES, SYNC_SCORES } from '../api/operations.js';
+import { DELETE_INTERVENTION, SAVE_INTERVENTION } from '../api/decisionOperations.js';
 import { normalize, MAX_BATCH } from '@gradebook/domain/score';
 import { CONFLICT_REVIEW } from '@gradebook/domain/conflict';
 import { ulid } from '@gradebook/domain/ids';
@@ -110,6 +111,52 @@ export async function queueAssessment(input, actor) {
   return draft;
 }
 
+/**
+ * An intervention change: saved on this device at once, sent when the server
+ * can be reached. `input` is the whole intervention (SaveInterventionInput) or,
+ * for a delete, its ids and version. A newer change to the same intervention
+ * replaces one still waiting; deleting one that never reached the server just
+ * forgets it.
+ */
+export async function queueIntervention({ action, input, actor }) {
+  const id = input.intervention_id;
+  const waiting = await db().outbox.where('target').equals(id)
+    .filter((e) => e.entity === 'Intervention' && (e.status === STATUS.PENDING || e.status === STATUS.FAILED)).toArray();
+  const cached = await db().interventions.get(id);
+
+  if (action === 'DELETE' && cached && cached._version == null) {
+    // Never reached the server: nothing to delete there.
+    await db().outbox.bulkDelete(waiting.map((e) => e.seq));
+    await db().interventions.delete(id);
+    await emit();
+    return;
+  }
+  const base = cached?._version ?? null;
+  await db().outbox.bulkDelete(waiting.map((e) => e.seq));
+  if (action === 'DELETE') {
+    await db().interventions.put({ ...cached, _pending: 'DELETE', _failed: null });
+  } else {
+    await db().interventions.put({ ...(cached || {}), ...input, _version: base, _pending: 'SAVE', _failed: null });
+  }
+  await outbox.enqueue({
+    entity: 'Intervention',
+    target: id,
+    payload: { action, input: { ...input, _version: base } },
+  });
+  await emit();
+  schedulePush(actor);
+}
+
+/** Drops a change the server refused and shows the server's copy again. */
+export async function discardIntervention(id) {
+  const keys = await db().outbox.where('target').equals(id).filter((e) => e.entity === 'Intervention').primaryKeys();
+  await db().outbox.bulkDelete(keys);
+  const row = await db().interventions.get(id);
+  if (row?._version == null) await db().interventions.delete(id);
+  else if (row) await db().interventions.put({ ...row, ...(row._server || {}), _pending: null, _failed: null });
+  await emit();
+}
+
 // --------------------------------------------------------------------- push
 
 async function cacheScore(id, item) {
@@ -181,6 +228,38 @@ async function pushAssessment(entry) {
   }
 }
 
+async function pushIntervention(entry) {
+  const { action, input } = entry.payload;
+  try {
+    if (action === 'DELETE') {
+      await net(() => gql(DELETE_INTERVENTION, { input: {
+        school_id: input.school_id, student_id: input.student_id, intervention_id: input.intervention_id, _version: input._version,
+      } }));
+      await outbox.remove([entry.seq]);
+      await db().interventions.delete(entry.target);
+      return;
+    }
+    const { saveIntervention } = await net(() => gql(SAVE_INTERVENTION, { input }));
+    await outbox.remove([entry.seq]);
+    // A change made while this one was on its way is based on the version just saved.
+    const newer = await db().outbox.where('target').equals(entry.target)
+      .filter((e) => e.seq > entry.seq && e.status === STATUS.PENDING).first();
+    if (newer) {
+      await outbox.settle(newer.seq, { payload: { ...newer.payload, input: { ...newer.payload.input, _version: saveIntervention._version } } });
+      const row = await db().interventions.get(entry.target);
+      if (row) await db().interventions.put({ ...row, _version: saveIntervention._version, _server: saveIntervention });
+      return;
+    }
+    await db().interventions.put({ ...saveIntervention, _server: saveIntervention, _pending: null, _failed: null });
+  } catch (e) {
+    await failAll([entry], e);
+    if (PERMANENT.has(e.errorType)) {
+      const row = await db().interventions.get(entry.target);
+      if (row) await db().interventions.put({ ...row, _failed: e.message });
+    }
+  }
+}
+
 async function pushScores(entries) {
   const { school_id, assessment_id } = entries[0].payload;
   try {
@@ -215,6 +294,7 @@ async function drain() {
 
     // Assessments first: marks behind them may need the assessment to exist.
     for (const entry of batch.filter((e) => e.entity === 'Assessment')) await pushAssessment(entry);
+    for (const entry of batch.filter((e) => e.entity === 'Intervention')) await pushIntervention(entry);
 
     const groups = new Map();
     for (const e of batch.filter((x) => x.entity === 'Score')) {

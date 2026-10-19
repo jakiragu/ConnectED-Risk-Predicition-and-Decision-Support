@@ -8,8 +8,41 @@ import {
   RESOLVE_SCORE_CONFLICT,
   LIST_TERMS,
 } from '../api/operations.js';
+import {
+  GET_RISK_DASHBOARD, GET_SCHOOL_RISK_OVERVIEW, GET_STUDENT_RISK_PROFILE, LIST_INTERVENTION_METHODS,
+} from '../api/decisionOperations.js';
 import * as outbox from './outbox.js';
-import { isOnline, queueAssessment, queueScore, refreshAssessments, refreshScores } from './syncEngine.js';
+import {
+  discardIntervention, isOnline, queueAssessment, queueIntervention, queueScore, refreshAssessments, refreshScores,
+} from './syncEngine.js';
+
+/**
+ * A read that still works offline: from the server when it can be reached
+ * (and kept on this device), otherwise the copy kept last time.
+ * @returns {Promise<{data:any, savedAt:string|null, fromDevice:boolean}>}
+ */
+async function readThrough(key, fetch) {
+  const fresh = await quietly(fetch);
+  if (fresh != null) {
+    const savedAt = new Date().toISOString();
+    await db().cache.put({ key, value: fresh, saved_at: savedAt });
+    return { data: fresh, savedAt, fromDevice: false };
+  }
+  const kept = await db().cache.get(key);
+  return { data: kept?.value ?? null, savedAt: kept?.saved_at ?? null, fromDevice: Boolean(kept) };
+}
+
+/** Server interventions into the device copy; ones with changes still waiting keep the local version. */
+async function mergeInterventions(studentId, items) {
+  const local = await db().interventions.where('student_id').equals(studentId).toArray();
+  const waiting = new Set(local.filter((i) => i._pending).map((i) => i.intervention_id));
+  const server = new Set(items.map((i) => i.intervention_id));
+  const gone = local.filter((i) => !server.has(i.intervention_id) && !i._pending && i._version != null).map((i) => i.intervention_id);
+  await db().transaction('rw', db().interventions, async () => {
+    if (gone.length) await db().interventions.bulkDelete(gone);
+    await db().interventions.bulkPut(items.filter((i) => !waiting.has(i.intervention_id)).map((i) => ({ ...i, _server: i })));
+  });
+}
 
 
 async function quietly(fn) {
@@ -63,6 +96,34 @@ export const repository = {
   loadScores: (schoolId, assessmentId) => quietly(() => refreshScores(schoolId, assessmentId)),
 
   saveScore: queueScore,
+
+  loadDashboard: (schoolId) =>
+    readThrough(`dashboard:${schoolId}`, async () => (await gql(GET_RISK_DASHBOARD, { school_id: schoolId })).getRiskDashboard),
+
+  loadSchoolOverview: (schoolId, academicYear = null) =>
+    readThrough(`overview:${schoolId}:${academicYear ?? 'current'}`, async () =>
+      (await gql(GET_SCHOOL_RISK_OVERVIEW, { school_id: schoolId, academic_year: academicYear })).getSchoolRiskOverview),
+
+  /** A student's risk profile; its interventions also go into the device copy the intervention form works from. */
+  async loadProfile(schoolId, studentId) {
+    const out = await readThrough(`profile:${studentId}`, async () =>
+      (await gql(GET_STUDENT_RISK_PROFILE, { school_id: schoolId, student_id: studentId })).getStudentRiskProfile);
+    if (out.data && !out.fromDevice) await mergeInterventions(studentId, out.data.interventions);
+    return out;
+  },
+
+  loadMethods: (schoolId, factor) =>
+    readThrough(`methods:${factor}`, async () =>
+      (await gql(LIST_INTERVENTION_METHODS, { school_id: schoolId, factor })).listInterventionMethods),
+
+  /** Saved on this device at once and sent when the server can be reached. */
+  saveIntervention: (input, actor) => queueIntervention({ action: 'SAVE', input, actor }),
+  deleteIntervention: (item, actor) => queueIntervention({
+    action: 'DELETE',
+    input: { school_id: actor.schoolId, student_id: item.student_id, intervention_id: item.intervention_id },
+    actor,
+  }),
+  discardIntervention,
 
   /** Online: create now, so validation errors come back to the form. Offline: queue. */
   async createAssessment(input, actor) {

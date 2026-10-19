@@ -13,6 +13,10 @@ import ReportCards from './pages/ReportCards.jsx';
 import Terms from './pages/Terms.jsx';
 import Attendance from './pages/Attendance.jsx';
 import ModelInputs from './pages/ModelInputs.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import StudentProfile from './pages/StudentProfile.jsx';
+import InterventionForm from './pages/InterventionForm.jsx';
+import SchoolRisk from './pages/SchoolRisk.jsx';
 
 function RequireAuth({ children }) {
   const { actor } = useAuth();
@@ -23,7 +27,7 @@ function RequireAuth({ children }) {
 
 function RequireAdmin({ children }) {
   const { isAdmin } = useAuth();
-  return isAdmin ? children : <Navigate to="/classes" replace />;
+  return isAdmin ? children : <Navigate to="/dashboard" replace />;
 }
 
 export default function App() {
@@ -31,7 +35,11 @@ export default function App() {
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
-        <Route index element={<Navigate to="/classes" replace />} />
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="students/:studentId/risk" element={<StudentProfile />} />
+        <Route path="students/:studentId/interventions" element={<InterventionForm />} />
+        <Route path="school-risk" element={<RequireAdmin><SchoolRisk /></RequireAdmin>} />
         <Route path="classes" element={<Classes />} />
         <Route path="assessments" element={<Assessments />} />
         <Route path="assessments/new" element={<AssessmentForm />} />

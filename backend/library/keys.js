@@ -48,6 +48,12 @@ export const sk = {
   riskRun: (termId, classId, checkpoint) => `RISKRUN#${termId}#${classId}#${checkpoint}`,
   risk: (academicYear, point, studentId) => `RISK#${academicYear}#${point}#${studentId}`,
   riskPointPrefix: (academicYear, point) => `RISK#${academicYear}#${point}#`,
+  // A teacher's intervention for a student, under the student so their history is one query.
+  intervention: (studentId, id) => `INTERVENTION#${studentId}#${id}`,
+  interventionStudentPrefix: (studentId) => `INTERVENTION#${studentId}#`,
+  // A method teachers have used for a factor, remembered once per wording (suggestions in the form).
+  interventionMethod: (factor, key) => `INTVMETHOD#${factor}#${key}`,
+  interventionMethodPrefix: (factor) => `INTVMETHOD#${factor ? `${factor}#` : ''}`,
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,
@@ -56,6 +62,8 @@ export const sk = {
 export const gsi1 = {
   pk: (schoolId, classId) => `SCHOOL#${schoolId}#CLASS#${classId}`,
   assessment: (termId, assessmentId) => `TERM#${termId}#ASSESSMENT#${assessmentId}`,
+  intervention: (id) => `INTERVENTION#${id}`,
+  interventionPrefix: () => 'INTERVENTION#',
 };
 
 export const gsi2 = {

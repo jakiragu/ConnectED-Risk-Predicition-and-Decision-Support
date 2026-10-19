@@ -11,6 +11,7 @@ import * as features from '../../library/featureStore.js';
 import * as platform from '../../library/platformRepo.js';
 import * as results from '../../library/resultsRepo.js';
 import * as risk from '../../library/riskRepo.js';
+import { getRiskDashboard, getSchoolRiskOverview, getStudentRiskProfile } from './decision.js';
 
 /**
  * Risk predictions, their SHAP explanations, their counterfactual targets for
@@ -36,6 +37,12 @@ export async function handler(event) {
       return getRiskRun(actor, args);
     case 'getRiskModel':
       return getRiskModel(actor);
+    case 'getStudentRiskProfile':
+      return getStudentRiskProfile(actor, args);
+    case 'getRiskDashboard':
+      return getRiskDashboard(actor, args);
+    case 'getSchoolRiskOverview':
+      return getSchoolRiskOverview(actor, args);
     case 'runRiskPredictions':
       return runRiskPredictions(actor, input);
     default:

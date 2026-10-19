@@ -36,7 +36,7 @@ const projection = (t, o) => (t.evaluation_kind === 'pass_mark_rule'
  * targets clear the next checkpoint's model (or, at T3M, the pass mark);
  * peer-progression targets are a fallback and may not.
  */
-function Targets({ targets: t }) {
+export function Targets({ targets: t }) {
   if (t.status === 'ERROR') return <div className="notice">Targets could not be worked out for this prediction. {t.reason}</div>;
   if (t.status === 'NONE') return <div className="notice">No target. {t.reason}</div>;
   const baseline = t.evaluation_kind === 'pass_mark_rule'

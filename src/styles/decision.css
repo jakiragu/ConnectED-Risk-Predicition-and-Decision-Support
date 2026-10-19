@@ -1,0 +1,49 @@
+/* Decision support: dashboard, student risk profile, intervention form, school overview.
+   Uses the app's tokens only; the estimated risk is the one emphasised figure. */
+.dash-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); gap: var(--space-4); align-items: start; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
+.stat { display: grid; justify-items: center; gap: var(--space-1); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: center; }
+.stat b { font-size: var(--t-3xl); line-height: 1.1; color: var(--ink-strong); }
+.stat b small { font-size: var(--t-base); color: var(--muted); font-weight: 400; }
+.stat span { color: var(--muted); font-size: var(--t-sm); }
+.find input { width: 100%; }
+.found, .plain { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.found li { display: flex; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.found .actions, .actions { display: inline-flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+h3.sub, h2.sub { margin: var(--space-2) 0 var(--space-1); font-size: var(--t-base); color: var(--muted); font-weight: 600; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: var(--space-3); }
+.student-card { display: grid; gap: var(--space-2); }
+.student-card .who { font-weight: 600; }
+.risk { color: var(--danger); }
+.good { color: var(--success); }
+
+.profile-head { display: grid; gap: var(--space-1); justify-items: center; text-align: center; }
+.profile-head h1 { margin: 0; }
+.profile-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(16rem, 2fr); gap: var(--space-4); align-items: start; }
+.factors li b { font-weight: 600; }
+.back { justify-self: start; }
+
+.form-split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(15rem, 1fr); gap: var(--space-4); align-items: start; }
+.editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
+.editor label { display: grid; gap: var(--space-1); font-size: var(--t-sm); color: var(--muted); }
+.editor .wide { grid-column: 1 / -1; }
+.editor input, .editor select, .editor textarea { font: inherit; color: var(--ink); }
+.intervention { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--line-soft); }
+.intervention:last-child { border-bottom: 0; }
+.intervention.removed b { text-decoration: line-through; color: var(--muted); }
+.suggestions { position: sticky; top: var(--space-4); }
+.suggestion { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+
+.linechart { margin: 0; }
+.linechart svg { width: 100%; height: auto; display: block; }
+.linechart .grid { stroke: var(--line-soft); stroke-width: 1; }
+.linechart .threshold { stroke: var(--danger); stroke-width: 1; stroke-dasharray: 4 4; }
+.linechart .tick { fill: var(--muted); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--t-sm); color: var(--muted); margin-top: var(--space-2); }
+.legend i { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: var(--space-1); vertical-align: -1px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .dash-top, .profile-grid, .form-split { grid-template-columns: 1fr; }
+  .suggestions { position: static; }
+}

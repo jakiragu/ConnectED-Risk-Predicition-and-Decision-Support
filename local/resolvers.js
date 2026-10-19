@@ -6,6 +6,7 @@ import { handler as calendarService } from '../backend/lambdas/calendar-service/
 import { handler as attendanceService } from '../backend/lambdas/attendance-service/handler.js';
 import { handler as featureService } from '../backend/lambdas/feature-service/handler.js';
 import { handler as riskService } from '../backend/lambdas/risk-service/handler.js';
+import { handler as interventionService } from '../backend/lambdas/intervention-service/handler.js';
 
 export const RESOLVERS = {
   Query: {
@@ -35,6 +36,11 @@ export const RESOLVERS = {
     getRiskExplanation: riskService,
     getRiskImportance: riskService,
     getRiskModel: riskService,
+    getStudentRiskProfile: riskService,
+    getRiskDashboard: riskService,
+    getSchoolRiskOverview: riskService,
+    listStudentInterventions: interventionService,
+    listInterventionMethods: interventionService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -70,5 +76,7 @@ export const RESOLVERS = {
     updateTerm: calendarService,
     submitAttendance: attendanceService,
     runRiskPredictions: riskService,
+    saveIntervention: interventionService,
+    deleteIntervention: interventionService,
   },
 };

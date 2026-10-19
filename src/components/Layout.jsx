@@ -7,16 +7,18 @@ import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
 
 /**
- * Every user: classes, assessments, results. Attendance, report cards and model
+ * Every user: dashboard, classes, assessments, results. School risk: administrators. Attendance, report cards and model
  * inputs: administrators and class teachers. Teachers and terms: administrators.
  */
 const NAV = [
+  { to: '/dashboard', label: 'Dashboard' },
   { to: '/classes', label: 'Classes' },
   { to: '/assessments', label: 'Assessments' },
   { to: '/results', label: 'Results' },
   { to: '/attendance', label: 'Attendance', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/report-cards', label: 'Report cards', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/model-inputs', label: 'Model inputs', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/school-risk', label: 'School risk', show: ({ isAdmin }) => isAdmin },
   { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
   { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },
 ];
@@ -34,7 +36,7 @@ export default function Layout() {
     const { pending, failed, held } = await getState();
     const unsent = pending + failed + held;
     if (unsent && !window.confirm(
-      `${unsent} mark${unsent === 1 ? ' has' : 's have'} not reached the server yet. ` +
+      `${unsent} change${unsent === 1 ? ' has' : 's have'} (marks or interventions) not reached the server yet. ` +
       'They will stay on this device and be sent the next time you sign in. Log out?'
     )) return;
     const sub = actor.sub;
