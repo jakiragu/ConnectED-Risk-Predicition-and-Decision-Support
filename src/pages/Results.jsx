@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CHECKPOINTS, CHECKPOINT_LABEL, SEVERITY } from '@gradebook/domain/results';
 import { gql } from '../api/graphql.js';
+import { useLatest } from '../api/useLatest.js';
 import {
   CALCULATE_SCHOOL_RESULTS,
   CALCULATE_TERM_RESULTS,
@@ -15,6 +16,7 @@ import {
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import { Checkbox, EmptyState, Info, Notice, Progress } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -34,13 +36,25 @@ const paperMark = (p) => (p.mark_status === 'SCORED' ? `${p.raw_score}/${p.max_s
 function ReportCards({ set }) {
   if (set?.status !== 'PUBLISHED' || !set.report_cards_status) return null;
   const { report_cards_status: status, report_cards_generated: done, report_cards_expected: total } = set;
-  const text = {
-    PENDING: 'Report cards are queued',
-    RUNNING: `Producing report cards: ${done} of ${total}`,
-    COMPLETE: `${done} report card${done === 1 ? '' : 's'} produced`,
-    FAILED: `Report cards failed after ${done} of ${total}${set.report_error ? `: ${set.report_error}` : ''}`,
-  }[status];
-  return <span className={`budget ${status === 'FAILED' ? 'warn' : ''}`}>{text}</span>;
+  if (status === 'COMPLETE') return <span className="hint">{done} report card{done === 1 ? '' : 's'}</span>;
+  if (status === 'PENDING') return <span className="hint">Report cards queued</span>;
+  return (
+    <Progress done={done} total={total} failed={status === 'FAILED'}
+      label={status === 'FAILED' ? `Report cards stopped at ${done} of ${total}` : `Report cards ${done} of ${total}`} />
+  );
+}
+
+/** Why some selected classes cannot be published, in one short line. */
+function whyNot(chosen, ready) {
+  const left = chosen.filter((r) => !ready.includes(r));
+  if (!left.length) return chosen.length ? 'All selected classes are ready to publish' : '';
+  const n = (f) => left.filter(f).length;
+  const parts = [
+    [n((r) => r.result_set.status === 'NOT_CALCULATED'), 'not calculated'],
+    [n((r) => r.result_set.status === 'PUBLISHED'), 'already published'],
+    [n((r) => r.result_set.status === 'CALCULATED'), 'need fixes'],
+  ].filter(([k]) => k > 0).map(([k, t]) => `${k} ${t}`);
+  return `${ready.length} ready to publish${parts.length ? ` · ${parts.join(' · ')}` : ''}`;
 }
 
 function Issues({ set }) {
@@ -64,18 +78,31 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
   const [outcomes, setOutcomes] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const latest = useLatest();
 
+  // Resolves to null when a newer load has started; that one updates the panel instead.
   const load = useCallback(async () => {
-    const { listCheckpointStatus } = await gql(LIST_CHECKPOINT_STATUS, { school_id: schoolId, term_id: termId, checkpoint });
-    setRows(listCheckpointStatus);
-    return listCheckpointStatus;
-  }, [schoolId, termId, checkpoint]);
+    const n = latest.start();
+    try {
+      const { listCheckpointStatus } = await gql(LIST_CHECKPOINT_STATUS, { school_id: schoolId, term_id: termId, checkpoint });
+      if (!latest.isLatest(n)) return null;
+      setRows(listCheckpointStatus);
+      setError(null);
+      setLoaded(true);
+      return listCheckpointStatus;
+    } catch (e) {
+      if (latest.isLatest(n)) throw e;
+      return null;
+    }
+  }, [schoolId, termId, checkpoint, latest]);
 
   useEffect(() => {
     setOutcomes(null);
     setError(null);
+    setLoaded(false);
     load()
-      .then((list) => setSelected(new Set(list.map((r) => r.class_id)))) // all classes selected by default
+      .then((list) => list && setSelected(new Set(list.map((r) => r.class_id)))) // all classes selected by default
       .catch((e) => setError(e.message));
   }, [load]);
 
@@ -138,34 +165,34 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
     <div className="card">
       <div className="weights-head">
         <h2>{CHECKPOINT_LABEL[checkpoint]}: whole school</h2>
-        <span className="hint">All classes are selected. Untick any class you do not want to include.</span>
       </div>
-      {error && <div className="error">{error}</div>}
+      {error && <Notice tone="error">{error}</Notice>}
       <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>
-                <input
-                  type="checkbox"
-                  aria-label="Select all classes"
-                  checked={rows.length > 0 && selected.size === rows.length}
-                  onChange={(e) => setSelected(new Set(e.target.checked ? rows.map((r) => r.class_id) : []))}
-                />
+                <Checkbox label="Select all classes" checked={rows.length > 0 && selected.size === rows.length}
+                  indeterminate={selected.size > 0} onChange={(on) => setSelected(new Set(on ? rows.map((r) => r.class_id) : []))} />
               </th>
               <th>Class</th><th>Status</th><th>Students</th><th>Problems</th><th>Report cards</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
+            {!loaded && !error && (
+              <tr><td colSpan={7} className="hint">Loading classes…</td></tr>
+            )}
+            {loaded && !rows.length && (
+              <tr><td colSpan={7} className="hint">No classes in this school yet.</td></tr>
+            )}
             {rows.map((r) => {
               const set = r.result_set;
               const blocking = blockingOf(set);
               const outcome = outcomeFor(r.class_id);
               return (
-                <tr key={r.class_id}>
+                <tr key={r.class_id} className={selected.has(r.class_id) ? 'selected' : ''}>
                   <td>
-                    <input type="checkbox" aria-label={`Include ${r.class_name}`}
-                      checked={selected.has(r.class_id)} onChange={() => toggle(r.class_id)} />
+                    <Checkbox label={`Include ${r.class_name}`} checked={selected.has(r.class_id)} onChange={() => toggle(r.class_id)} />
                   </td>
                   <td>{r.class_name}</td>
                   <td><StatusPill status={set.status} /></td>
@@ -180,7 +207,6 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
                     {!outcome && !blocking.length && warningsOf(set).length > 0 && (
                       <span className="hint warn">{warningsOf(set).length} warning{warningsOf(set).length === 1 ? '' : 's'}</span>
                     )}
-                    {outcome?.ok && <span className="hint">Done</span>}
                   </td>
                   <td><ReportCards set={set} /></td>
                   <td className="actions">
@@ -192,16 +218,17 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
           </tbody>
         </table>
       </div>
-      <div className="budget-row">
+      <div className="action-bar">
+        <span className="count">{chosen.length} of {rows.length} selected</span>
+        <span className="why">{whyNot(chosen, ready)}</span>
+        <span className="grow" />
         <button type="button" className="btn secondary" disabled={busy || !chosen.length} onClick={calculate}>
-          {busy ? 'Working' : `Calculate ${chosen.length} class${chosen.length === 1 ? '' : 'es'}`}
+          {busy ? 'Working…' : `Calculate ${chosen.length}`}
         </button>
-        <button type="button" className="btn" disabled={busy || !ready.length} onClick={publish}>
-          {`Publish ${ready.length} class${ready.length === 1 ? '' : 'es'}`}
+        <button type="button" className="btn" disabled={busy || !ready.length} onClick={publish}
+          title={!ready.length && chosen.length ? 'Calculate the selected classes and fix any problems first' : undefined}>
+          {`Publish ${ready.length}`}
         </button>
-        {chosen.length > ready.length && (
-          <span className="hint">{chosen.length - ready.length} selected not ready to publish (not calculated, blocked or already published)</span>
-        )}
       </div>
     </div>
   );
@@ -326,17 +353,24 @@ export default function Results() {
 
   const set = sets.find((s) => s.checkpoint === checkpoint) || null;
 
+  const latest = useLatest();
   const load = useCallback(async () => {
     if (!classId || !termId) return;
-    const [{ listResultSets }, { getTermResults }, { getClassRoster }] = await Promise.all([
-      gql(LIST_RESULT_SETS, { school_id: actor.schoolId, class_id: classId, term_id: termId }),
-      gql(GET_TERM_RESULTS, { school_id: actor.schoolId, class_id: classId, term_id: termId, checkpoint }),
-      gql(GET_CLASS_ROSTER, { school_id: actor.schoolId, class_id: classId }),
-    ]);
-    setSets(listResultSets);
-    setRows(getTermResults);
-    setRoster(getClassRoster);
-  }, [actor.schoolId, classId, termId, checkpoint]);
+    const n = latest.start();
+    try {
+      const [{ listResultSets }, { getTermResults }, { getClassRoster }] = await Promise.all([
+        gql(LIST_RESULT_SETS, { school_id: actor.schoolId, class_id: classId, term_id: termId }),
+        gql(GET_TERM_RESULTS, { school_id: actor.schoolId, class_id: classId, term_id: termId, checkpoint }),
+        gql(GET_CLASS_ROSTER, { school_id: actor.schoolId, class_id: classId }),
+      ]);
+      if (!latest.isLatest(n)) return; // a newer class, term or checkpoint is on screen now
+      setSets(listResultSets);
+      setRows(getTermResults);
+      setRoster(getClassRoster);
+    } catch (e) {
+      if (latest.isLatest(n)) throw e;
+    }
+  }, [actor.schoolId, classId, termId, checkpoint, latest]);
 
   useEffect(() => {
     setError(null);
@@ -393,10 +427,9 @@ export default function Results() {
       <div className="page-head">
         <h1>Results</h1>
         <Select aria-label="Term" value={termId} onChange={(v) => go({ term: v })}
-          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} placeholder="Choose a term" style={{ width: 180 }} />
+          options={terms.map((t) => ({ value: t.term_id, label: t.name }))} placeholder="Choose a term" />
       </div>
 
-      {!online && <div className="notice">Results need a connection.</div>}
 
       <div className="segmented" role="tablist" aria-label="Checkpoint">
         {CHECKPOINTS.map((c) => {
@@ -425,16 +458,18 @@ export default function Results() {
       <div className="page-head">
         <h2>{className ? `${className}: ${CHECKPOINT_LABEL[checkpoint]}` : 'Class results'}</h2>
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v, subject: '' })}
-          options={sortedClasses.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Choose a class" style={{ width: 200 }} />
+          options={sortedClasses.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Choose a class" />
         {classId && (
           <Select aria-label="Subject" value={subject} onChange={(v) => go({ subject: v })}
             options={[{ value: '', label: 'All subjects' }, ...subjects.map((s) => ({ value: s, label: s }))]}
-            style={{ width: 180 }} />
+            />
         )}
       </div>
 
-      {error && <div className="card error-card">{error}</div>}
-      {notice && <div className="notice">{notice}</div>}
+      {error && <Notice tone="error">{error}</Notice>}
+      {notice && <Notice tone="success">{notice}</Notice>}
+
+      {classId && !set && !error && online && <p className="hint">Loading results…</p>}
 
       {classId && set && (
         <>
@@ -470,18 +505,21 @@ export default function Results() {
 
           {reviewer && <Issues set={set} />}
 
-          {set.status === 'UNPUBLISHED' || (set.status === 'NOT_CALCULATED' && !reviewer) ? (
-            <div className="notice">{CHECKPOINT_LABEL[checkpoint]} results for {className} have not been published yet.</div>
-          ) : set.status === 'NOT_CALCULATED' ? (
-            <div className="notice">Not calculated yet. Calculate to review {CHECKPOINT_LABEL[checkpoint]} results for {className}.</div>
+          {set.status === 'UNPUBLISHED' || set.status === 'NOT_CALCULATED' ? (
+            <EmptyState title={reviewer ? 'Not calculated yet' : 'Not published yet'}>
+              {reviewer ? `Calculate to review ${CHECKPOINT_LABEL[checkpoint]} results for ${className}.`
+                : `${CHECKPOINT_LABEL[checkpoint]} results for ${className} appear here once they are published.`}
+            </EmptyState>
           ) : rows.length > 0 ? (
             <>
-              <div className="notice">
-                {final
-                  ? 'Official end of term results: each subject combines its checkpoint exams by the weights above.'
-                  : `Provisional ${CHECKPOINT_LABEL[checkpoint]} exam results. Each subject's papers make up 100% of this exam. ` +
-                    'This is not the term result, and no grade is given.'}
-                {set.status === 'CALCULATED' && ' Not yet published.'}
+              <div className="row">
+                <span className="chip">{CHECKPOINT_LABEL[checkpoint]}</span>
+                <span className="chip">{final ? 'Term result' : 'Exam result only'}</span>
+                <Info label="What these results are">
+                  {final
+                    ? 'Official end-of-term results: each subject combines its checkpoint exams by the weights shown, and is graded.'
+                    : `The ${CHECKPOINT_LABEL[checkpoint]} exam on its own: each subject's papers make up the whole exam. It is not the term result, so no grade is given.`}
+                </Info>
               </div>
               <ResultsTable rows={rows} roster={roster} set={set} subject={subject} />
             </>

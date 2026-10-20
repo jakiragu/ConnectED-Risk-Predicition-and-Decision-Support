@@ -5,6 +5,7 @@ import { db, dropFor } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
 import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
+import GlobalSearch from './GlobalSearch.jsx';
 
 /**
  * Every user: dashboard, classes, assessments, results. School risk: administrators. Attendance, report cards and model
@@ -17,7 +18,7 @@ const NAV = [
   { to: '/results', label: 'Results' },
   { to: '/attendance', label: 'Attendance', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/report-cards', label: 'Report cards', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
-  { to: '/model-inputs', label: 'Model inputs', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
+  { to: '/risk', label: 'Risk prediction', show: ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher },
   { to: '/school-risk', label: 'School risk', show: ({ isAdmin }) => isAdmin },
   { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
   { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },
@@ -66,6 +67,7 @@ export default function Layout() {
 
       <div className="main">
         <header className="topbar">
+          <GlobalSearch />
           <SyncBar />
           <div className="who">
             <span>{actor?.name}</span>

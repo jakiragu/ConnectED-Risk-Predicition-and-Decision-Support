@@ -5,6 +5,7 @@ import { gql } from '../api/graphql.js';
 import { GET_ASSESSMENT, GET_CLASS_ROSTER, LIST_SCORES, SUBMIT_SCORES } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import StatusPill from '../components/StatusPill.jsx';
+import { Info, Notice, useToast } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
 
@@ -24,6 +25,8 @@ export default function ScoreEntry() {
   const [rowNotes, setRowNotes] = useState({});
   const [failure, setFailure] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [toast, showToast] = useToast();
+  const [find, setFind] = useState('');
   const [saving, setSaving] = useState(false);
   const inputs = useRef([]);
 
@@ -50,6 +53,11 @@ export default function ScoreEntry() {
   }, [load]);
 
   const rosterIds = useMemo(() => new Set(roster.map((s) => s.student_id)), [roster]);
+  // Rows shown: the whole roster, or those matching the search. Unsaved marks live in drafts, so filtering keeps them.
+  const shown = useMemo(() => {
+    const q = find.trim().toLowerCase();
+    return q ? roster.filter((s) => `${s.first_name} ${s.last_name} ${s.admission_no}`.toLowerCase().includes(q)) : roster;
+  }, [roster, find]);
   const classes = useLive(() => db().classes.toArray(), [], []);
   const isAdmin = actor.groups.includes('Admin');
   const teaches = isAdmin || (classes.find((c) => c.class_id === assessment?.class_id)?.my_subjects || []).includes(assessment?.subject);
@@ -125,7 +133,9 @@ export default function ScoreEntry() {
       setDrafts(nextDrafts);
       setRowErrors(nextErrors);
       setRowNotes(nextNotes);
-      setSummary(res);
+      // A clean save is confirmed briefly; rejected or conflicted marks stay on screen.
+      if (res.rejected || res.conflicted) setSummary(res);
+      else showToast(`Saved ${res.accepted} mark${res.accepted === 1 ? '' : 's'}`);
       const { getAssessment: a } = await gql(GET_ASSESSMENT, { school_id: actor.schoolId, assessment_id: assessmentId });
       if (a) setAssessment(a);
     } catch (e) {
@@ -154,14 +164,14 @@ export default function ScoreEntry() {
         <span>{assessment.subject}</span>
         <span>{assessment.assessment_type}{assessment.paper_no ? ` paper ${assessment.paper_no}` : ''} · {assessment.weight}%</span>
         <span>Marked out of <b>{assessment.max_score}</b></span>
-        <span className="hint">Type ABS for absent, NA for not assessed</span>
+        <Info label="Entering marks">Type a mark, ABS for absent or NA for not assessed. Marks save when you press Save.</Info>
         <span><b>{entered}</b> of {roster.length} entered</span>
         {changed.length > 0 && <span><b>{changed.length}</b> unsaved</span>}
       </div>
 
-      {failure && <div className="card error-card">{failure}</div>}
+      {failure && <Notice tone="error">{failure}</Notice>}
       {readOnly && (
-        <div className="notice">
+        <div className="notice warn">
           {!teaches
             ? `You do not teach ${assessment.subject} in this class, so these marks are view-only.`
             : (assessment.published_in || []).length
@@ -170,14 +180,20 @@ export default function ScoreEntry() {
         </div>
       )}
       {summary && (
-        <div className="notice">
+        <Notice tone="warn">
           Saved {summary.accepted}
-          {summary.rejected > 0 && `, ${summary.rejected} rejected`}
-          {summary.conflicted > 0 && `, ${summary.conflicted} changed by someone else`}.
-        </div>
+          {summary.rejected > 0 && `; ${summary.rejected} rejected (see the rows marked below)`}
+          {summary.conflicted > 0 && `; ${summary.conflicted} changed by someone else`}.
+        </Notice>
       )}
+      {toast}
 
       <div className="table-wrap">
+        <div className="toolbar table-tools">
+          <input type="search" aria-label="Find a student" placeholder="Find a student by name or admission number"
+            value={find} onChange={(e) => setFind(e.target.value)} />
+          {find.trim() && <span className="hint">Showing {shown.length} of {roster.length}</span>}
+        </div>
         <table className="score-table">
           <thead>
             <tr>
@@ -188,7 +204,10 @@ export default function ScoreEntry() {
             {roster.length === 0 && (
               <tr className="empty"><td colSpan={5}>No students are enrolled in this class.</td></tr>
             )}
-            {roster.map((s, i) => {
+            {shown.length === 0 && roster.length > 0 && (
+              <tr className="empty"><td colSpan={5}>No student matches “{find.trim()}”.</td></tr>
+            )}
+            {shown.map((s, i) => {
               const draft = drafts[s.student_id] ?? '';
               const err = rowErrors[s.student_id];
               const note = rowNotes[s.student_id];
@@ -218,7 +237,7 @@ export default function ScoreEntry() {
                       : note ? <span className="warn">{note}</span>
                       : dirty ? <span className="hint">Unsaved</span>
                       : saved[s.student_id] ? <span className="ok">Saved</span>
-                      : <span className="hint">—</span>}
+                      : null}
                   </td>
                 </tr>
               );

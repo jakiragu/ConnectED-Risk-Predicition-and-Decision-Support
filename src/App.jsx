@@ -12,7 +12,7 @@ import Students from './pages/Students.jsx';
 import ReportCards from './pages/ReportCards.jsx';
 import Terms from './pages/Terms.jsx';
 import Attendance from './pages/Attendance.jsx';
-import ModelInputs from './pages/ModelInputs.jsx';
+import RiskPrediction from './pages/RiskPrediction.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import StudentProfile from './pages/StudentProfile.jsx';
 import InterventionForm from './pages/InterventionForm.jsx';
@@ -51,7 +51,8 @@ export default function App() {
         <Route path="teachers" element={<RequireAdmin><Teachers /></RequireAdmin>} />
         <Route path="terms" element={<RequireAdmin><Terms /></RequireAdmin>} />
         <Route path="attendance" element={<Attendance />} />
-        <Route path="model-inputs" element={<ModelInputs />} />
+        <Route path="risk" element={<RiskPrediction />} />
+        <Route path="model-inputs" element={<Navigate to="/risk" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

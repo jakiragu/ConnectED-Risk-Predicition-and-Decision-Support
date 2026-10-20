@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { todayIn } from '@gradebook/domain/calendar';
 import { FREQUENCIES, FREQUENCY_LABEL, INTERVENTION_STATUS, validateIntervention } from '@gradebook/domain/decision';
 import { ulid } from '@gradebook/domain/ids';
@@ -9,8 +9,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
-import '../styles/explain.css';
-import '../styles/decision.css';
+import { DangerButton } from '../components/ui.jsx';
 
 const today = () => todayIn('Africa/Nairobi');
 const blank = (factor) => ({ factor, method: '', frequency: 'WEEKLY', started_on: today(), expected_outcome: '', notes: '' });
@@ -78,6 +77,7 @@ function Editor({ value, onChange, factors, idPrefix }) {
  */
 export default function InterventionForm() {
   const { studentId } = useParams();
+  const location = useLocation();
   const { actor } = useAuth();
   const { online } = useSync();
   const [profile, setProfile] = useState(null);
@@ -169,7 +169,7 @@ export default function InterventionForm() {
 
   return (
     <div className="stack">
-      <Link to={`/students/${studentId}/risk`}>Back to {profile.student.first_name}&apos;s risk profile</Link>
+      <Link to={`/students/${studentId}/risk`} replace state={{ from: location.state?.from }}>Back to {profile.student.first_name}&apos;s risk profile</Link>
       <div className="form-split">
         <div className="stack">
           <div className="card stack">
@@ -208,7 +208,7 @@ export default function InterventionForm() {
                     <>
                       <button type="button" className="btn link" onClick={() => setEditing({ id: i.intervention_id, value: { ...i } })}>Edit</button>
                       <button type="button" className="btn link" onClick={() => stop(i)}>Stop</button>
-                      <button type="button" className="btn link danger" onClick={() => remove(i)}>Delete</button>
+                      <DangerButton onClick={() => remove(i)}>Delete</DangerButton>
                     </>
                   )))}
                 </ul>
@@ -226,7 +226,7 @@ export default function InterventionForm() {
                   {list.map((i) => row(i, (
                     <>
                       <button type="button" className="btn link" onClick={() => restart(i)}>Restart</button>
-                      <button type="button" className="btn link danger" onClick={() => remove(i)}>Delete</button>
+                      <DangerButton onClick={() => remove(i)}>Delete</DangerButton>
                     </>
                   )))}
                 </ul>

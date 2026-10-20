@@ -1,4 +1,4 @@
-import { assertTenant, assertClassRead, assertClassTeacherOrAdmin, isAdmin, isClassTeacherOf } from '../../library/authz.js';
+import { assertTenant, assertClassTeacherOrAdmin, isAdmin, isClassTeacherOf } from '../../library/authz.js';
 import { resolveActor } from '../../library/actor.js';
 import { attendancePeriods, periodOf, PERIODS, PERIOD_LABEL } from '../../library/calendar.js';
 import { cumulativeAttendance, periodSummary, validateAttendance } from '../../library/attendance.js';
@@ -67,7 +67,8 @@ async function yearPeriodsUpTo(schoolId, term, period) {
 
 async function getClassAttendance(actor, { school_id, class_id, term_id, period }) {
   const klass = await loadClass(school_id, class_id);
-  assertClassRead(actor, class_id);
+  // Attendance belongs to the class teacher: reading it is limited the same way as recording it.
+  assertClassTeacherOrAdmin(actor, class_id);
   const { term, p } = await loadPeriod(school_id, term_id, period);
   const [roster, isLocked, yearPeriods] = await Promise.all([
     platform.roster(school_id, class_id),

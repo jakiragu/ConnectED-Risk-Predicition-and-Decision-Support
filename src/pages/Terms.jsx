@@ -3,10 +3,10 @@ import { attendancePeriods, validateTerm } from '@gradebook/domain/calendar';
 import { gql } from '../api/graphql.js';
 import { CREATE_TERM, LIST_TERMS_FULL, UPDATE_TERM } from '../api/calendarOperations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Offline, DangerButton } from '../components/ui.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
-import '../styles/calendar.css';
 
 const EMPTY_CLOSURE = { from: '', to: '', label: '' };
 const blankTerm = (year) => ({
@@ -67,7 +67,7 @@ function TermEditor({ term, siblings, onSave, onCancel, busy }) {
             <span>to</span>
             <input type="date" aria-label="Closed to" value={c.to} onChange={(e) => setClosure(i, { to: e.target.value })} />
             <input aria-label="Reason" placeholder="e.g. Half-term break" value={c.label} onChange={(e) => setClosure(i, { label: e.target.value })} />
-            <button type="button" className="btn link danger" onClick={() => setForm({ ...form, closures: form.closures.filter((_, j) => j !== i) })}>Remove</button>
+            <DangerButton icon="x" onClick={() => setForm({ ...form, closures: form.closures.filter((_, j) => j !== i) })}>Remove</DangerButton>
           </div>
         ))}
         <div><button type="button" className="btn link" onClick={() => setForm({ ...form, closures: [...form.closures, EMPTY_CLOSURE] })}>Add a closure</button></div>
@@ -148,7 +148,7 @@ export default function Terms() {
     }
   }
 
-  if (!online) return <div className="notice">Managing the calendar needs a connection.</div>;
+  if (!online) return <Offline what="Managing the calendar" />;
 
   return (
     <>

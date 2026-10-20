@@ -40,7 +40,7 @@ export async function handler(event) {
     case 'getStudentRiskProfile':
       return getStudentRiskProfile(actor, args);
     case 'getRiskDashboard':
-      return getRiskDashboard(actor, args);
+      return getRiskDashboard(actor, args).then(withTrends);
     case 'getSchoolRiskOverview':
       return getSchoolRiskOverview(actor, args);
     case 'runRiskPredictions':
@@ -246,4 +246,15 @@ async function runRiskPredictions(actor, input) {
     checkpoint: input.checkpoint, run_id: run.run_id, requested_by: actor.sub,
   }, { wait: false });
   return runView(run);
+}
+
+function withTrends(dashboard) {
+  if (!dashboard) return dashboard;
+  return {
+    ...dashboard,
+    at_risk_students: (dashboard.at_risk_students ?? []).map((s) => ({
+      ...s,
+      trend: Array.isArray(s.trend) ? s.trend.filter(Boolean) : [],
+    })),
+  };
 }

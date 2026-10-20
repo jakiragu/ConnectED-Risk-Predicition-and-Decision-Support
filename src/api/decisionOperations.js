@@ -18,7 +18,7 @@ export const GET_RISK_DASHBOARD = `
   query GetRiskDashboard($school_id: ID!) {
     getRiskDashboard(school_id: $school_id) {
       academic_year term_name classes students at_risk
-      at_risk_students { student { ${STUDENT} } latest { ${SUMMARY} } targets { ${CHANGE} } partial interventions }
+      at_risk_students { student { ${STUDENT} } latest { ${SUMMARY} } trend { prediction_point probability at_risk threshold } targets { ${CHANGE} } partial interventions }
       ongoing_interventions { intervention_id student_id student_name class_name factor method frequency started_on }
       pending_assessments { assessment_id class_name subject title assessment_type status missing due_date }
     }

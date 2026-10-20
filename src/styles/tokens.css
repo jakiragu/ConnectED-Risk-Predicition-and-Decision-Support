@@ -18,6 +18,16 @@
   --success: #12924a;
   --warning: #b8730c;
 
+  /* Meaning, not decoration: risk and improvement in the risk screens (the
+     prototype shows risk in red and targets in green); --danger stays for
+     destructive actions only. */
+  --risk: #c2362f;
+  --risk-soft: #fbeceb;
+  --good: #12924a;
+  --good-soft: #e6f5ec;
+  --warning-soft: #fdf3e2;
+  --info-soft: #eaf8fb;
+
   --line: #0a4c55;
   --line-soft: #a9d3db;
 
