@@ -5,6 +5,7 @@ import { db, dropFor } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
 import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
+import GlobalSearch from './GlobalSearch.jsx';
 
 /**
  * Every user: dashboard, classes, assessments, results. School risk: administrators. Attendance, report cards and model
@@ -66,6 +67,7 @@ export default function Layout() {
 
       <div className="main">
         <header className="topbar">
+          <GlobalSearch />
           <SyncBar />
           <div className="who">
             <span>{actor?.name}</span>

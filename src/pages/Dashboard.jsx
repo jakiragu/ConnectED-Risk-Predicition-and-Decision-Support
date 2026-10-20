@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FREQUENCY_LABEL } from '@gradebook/domain/decision';
 import { targetText } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Sparkline } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -124,7 +125,11 @@ export default function Dashboard() {
                   <Link to={`/students/${c.student.student_id}/risk`} state={{ from: '/dashboard' }} className="who">
                     {c.student.first_name} {c.student.last_name}, {c.student.admission_no}, {c.student.class_name}
                   </Link>
-                  <div>Estimated risk: <b className="risk">{pct(c.latest.probability)}</b> <span className="hint">at {c.latest.label}</span></div>
+                  <div className="row">
+                    <span>Estimated risk <b className="risk">{pct(c.latest.probability)}</b> <span className="hint">at {c.latest.label}</span></span>
+                    <span className="grow" />
+                    <Sparkline points={c.trend} />
+                  </div>
                   <div>
                     {c.targets.length ? (
                       <>

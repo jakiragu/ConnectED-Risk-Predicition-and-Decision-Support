@@ -1070,6 +1070,7 @@ type StudentRiskProfile {
 type DashboardAtRisk {
   student: ProfileStudent!
   latest: RiskSummary!
+  trend: [RiskSummary!]!          # every estimate this year, in checkpoint order
   targets: [RiskTargetChange!]!   # the first option's changes the viewer may see
   partial: Boolean!               # true: only the viewer's subjects are shown
   interventions: [String!]!       # ongoing methods the viewer may see

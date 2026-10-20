@@ -175,8 +175,8 @@ export default function StudentProfile() {
           <h2>Estimated risk through the year</h2>
           {p.risk_trend.length ? (
             <LineChart title="Estimated risk by checkpoint" labels={points.map((c) => SHORT[c])}
-              series={[{ name: 'Estimated risk', values: points.map((c) => riskAt.get(c) ?? null) }]}
-              line={latest ? { value: latest.threshold * 100, label: 'threshold' } : null} format={(v) => `${Math.round(v)}%`} />
+              series={[{ name: 'Estimated risk', emphasis: true, values: points.map((c) => riskAt.get(c) ?? null) }]} yLabel="% estimated risk" valueLabels
+              line={latest ? { value: latest.threshold * 100, label: `flagged from ${Math.round(latest.threshold * 100)}%` } : null} format={(v) => `${Math.round(v)}%`} />
           ) : <div className="hint">No predictions yet.</div>}
         </div>
         <div className="card stack">
@@ -184,7 +184,7 @@ export default function StudentProfile() {
           {p.performance_trend.length ? (
             <LineChart title="Results by checkpoint" labels={points.map((c) => SHORT[c])}
               series={p.scope.all
-                ? [{ name: 'Average', values: points.map((c) => resultsAt.get(c)?.average ?? null) }]
+                ? [{ name: 'Average', emphasis: true, values: points.map((c) => resultsAt.get(c)?.average ?? null) }]
                 : subjects.map((s) => ({ name: s, values: points.map((c) => resultsAt.get(c)?.subjects.find((x) => x.subject === s)?.score ?? null) }))} />
           ) : <div className="hint">No published results yet.</div>}
         </div>

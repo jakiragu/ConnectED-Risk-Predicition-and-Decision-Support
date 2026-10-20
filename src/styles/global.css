@@ -246,15 +246,7 @@ th input[type='checkbox'] { accent-color: var(--accent); }
 
 /* ---- buttons ---- */
 .btn.small { padding: 6px var(--space-3); font-size: var(--t-sm); }
-.btn.danger:not(.link) { background: var(--danger); border-color: var(--danger); }
-/* Destructive row action: red outline, icon and label; fills on hover so the click target is obvious. */
-.btn.destructive {
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-  background: transparent; color: var(--danger); border: 1px solid var(--danger); text-decoration: none;
-}
-.btn.destructive:hover { background: var(--danger); color: #fff; }
-.btn.destructive:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
-.btn.destructive svg { flex: none; }
+.btn.danger { background: var(--danger); border-color: var(--danger); }
 
 /* ---- action bar under a selection table ---- */
 .action-bar {
@@ -364,11 +356,22 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .suggestion { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
 
 /* ---- line chart ---- */
-.linechart { margin: 0; }
-.linechart svg { width: 100%; height: auto; display: block; }
+/* Drawn at the container's real width, so these sizes are what the reader sees. */
+.linechart { margin: 0; width: 100%; }
+.linechart svg { display: block; overflow: visible; font-family: var(--font); }
 .linechart .grid { stroke: var(--line-soft); stroke-width: 1; }
-.linechart .threshold { stroke: var(--risk); stroke-width: 1; stroke-dasharray: 4 4; }
-.linechart .tick { fill: var(--muted); font-size: 11px; }
+.linechart .tick { fill: var(--muted); font-size: 12px; }
+.linechart .axis-label { fill: var(--muted); font-size: 12px; }
+.linechart .threshold { stroke: var(--risk); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.linechart .threshold-label { fill: var(--risk); font-size: 12px; font-weight: 600; }
+.linechart .end-label { font-size: 12px; font-weight: 600; }
+.linechart .end-label.emphasis { font-size: 13px; }
+.linechart .value-label { fill: var(--ink-strong); font-size: 12px; font-weight: 700; }
+.linechart circle { cursor: pointer; }
+.linechart circle:focus { outline: none; stroke-width: 3; }
+.linechart .tip { fill: var(--ink-strong); }
+.linechart .tip-text { fill: #fff; font-size: 12px; }
+.linechart .tip-text.strong { font-weight: 700; }
 .legend { display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--t-sm); color: var(--muted); margin-top: var(--space-2); }
 .legend i { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: var(--space-1); vertical-align: -1px; }
 
@@ -388,3 +391,41 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
   .suggestions { position: static; }
   .influence-head, .influence-row { grid-template-columns: minmax(6rem, 9rem) 1fr 3rem; }
 }
+
+/* ---- top-bar search ---- */
+.search { position: relative; flex: 1; max-width: 32rem; }
+.search input { padding: 8px var(--space-3); }
+.search-results { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; right: 0; max-height: 70vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); box-shadow: 0 10px 28px rgb(6 59 67 / 0.16); padding: var(--space-2) 0; }
+.search-group { padding: var(--space-2) var(--space-4) var(--space-1); font-size: var(--t-xs); font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.search-item { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3) 0 0; }
+.search-item.active { background: var(--info-soft); }
+.search-main { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--space-2) var(--space-4); border: 0; background: none; font: inherit; color: var(--body); cursor: pointer; text-align: left; }
+.search-main b { color: var(--ink); font-weight: 600; }
+.search-main span { font-size: var(--t-xs); color: var(--muted); }
+.search-empty { padding: var(--space-3) var(--space-4); color: var(--muted); font-size: var(--t-sm); }
+.btn.link.small { font-size: var(--t-sm); white-space: nowrap; }
+
+/* ---- a filter box above a table ---- */
+.table-tools { padding: var(--space-3); background: var(--surface); border-bottom: 1px solid var(--line-soft); }
+.table-tools input { max-width: 26rem; }
+
+/* ---- sparkline ---- */
+.sparkline { display: block; }
+.sparkline .spark-line { stroke: var(--ink); stroke-width: 2; }
+.sparkline .spark-threshold { stroke: var(--risk); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.sparkline .spark-dot { fill: var(--ink); }
+.sparkline .spark-dot.risk { fill: var(--risk); }
+
+/* ---- school risk ---- */
+.headline { font-size: var(--t-lg); line-height: 1.5; color: var(--body); }
+.headline b { color: var(--ink-strong); }
+.chip.toggle { cursor: pointer; font: inherit; font-size: var(--t-sm); }
+.chip.toggle.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip.above { margin-left: var(--space-2); }
+.ratebar { display: inline-flex; align-items: center; gap: var(--space-2); }
+.ratebar .track { position: relative; width: 8rem; height: 8px; border-radius: 999px; background: var(--line-soft); overflow: visible; }
+.ratebar .track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--risk); }
+.ratebar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink-strong); }
+.ratebar b { min-width: 3.25rem; text-align: right; font-variant-numeric: tabular-nums; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

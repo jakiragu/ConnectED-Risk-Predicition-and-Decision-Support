@@ -26,6 +26,7 @@ export default function ScoreEntry() {
   const [failure, setFailure] = useState(null);
   const [summary, setSummary] = useState(null);
   const [toast, showToast] = useToast();
+  const [find, setFind] = useState('');
   const [saving, setSaving] = useState(false);
   const inputs = useRef([]);
 
@@ -52,6 +53,11 @@ export default function ScoreEntry() {
   }, [load]);
 
   const rosterIds = useMemo(() => new Set(roster.map((s) => s.student_id)), [roster]);
+  // Rows shown: the whole roster, or those matching the search. Unsaved marks live in drafts, so filtering keeps them.
+  const shown = useMemo(() => {
+    const q = find.trim().toLowerCase();
+    return q ? roster.filter((s) => `${s.first_name} ${s.last_name} ${s.admission_no}`.toLowerCase().includes(q)) : roster;
+  }, [roster, find]);
   const classes = useLive(() => db().classes.toArray(), [], []);
   const isAdmin = actor.groups.includes('Admin');
   const teaches = isAdmin || (classes.find((c) => c.class_id === assessment?.class_id)?.my_subjects || []).includes(assessment?.subject);
@@ -183,6 +189,11 @@ export default function ScoreEntry() {
       {toast}
 
       <div className="table-wrap">
+        <div className="toolbar table-tools">
+          <input type="search" aria-label="Find a student" placeholder="Find a student by name or admission number"
+            value={find} onChange={(e) => setFind(e.target.value)} />
+          {find.trim() && <span className="hint">Showing {shown.length} of {roster.length}</span>}
+        </div>
         <table className="score-table">
           <thead>
             <tr>
@@ -193,7 +204,10 @@ export default function ScoreEntry() {
             {roster.length === 0 && (
               <tr className="empty"><td colSpan={5}>No students are enrolled in this class.</td></tr>
             )}
-            {roster.map((s, i) => {
+            {shown.length === 0 && roster.length > 0 && (
+              <tr className="empty"><td colSpan={5}>No student matches “{find.trim()}”.</td></tr>
+            )}
+            {shown.map((s, i) => {
               const draft = drafts[s.student_id] ?? '';
               const err = rowErrors[s.student_id];
               const note = rowNotes[s.student_id];

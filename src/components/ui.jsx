@@ -27,25 +27,13 @@ export const Offline = ({ what }) => (
   <EmptyState title="You are offline">{what} needs a connection. Anything you have entered is kept on this device.</EmptyState>
 );
 
-const DANGER_ICONS = {
-  trash: <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6" />,
-  x: <path d="M6 6l12 12M18 6L6 18" />,
-  ban: <><circle cx="12" cy="12" r="9" /><path d="M5.6 5.6l12.8 12.8" /></>,
-};
-
 /**
- * A destructive action (delete, remove, deactivate): red outline with an icon
- * and its label, so it never reads as an unlabelled red block.
- * icon: trash (default) | x | ban
+ * A destructive action (delete, deactivate, remove). The only red button in the
+ * app: red is reserved for actions that cannot easily be undone. Takes the
+ * same props as <button>; type defaults to "button" so it never submits a form.
  */
-export function DangerButton({ icon = 'trash', children, ...rest }) {
-  return (
-    <button type="button" className="btn small destructive" {...rest}>
-      <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
-        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{DANGER_ICONS[icon]}</svg>
-      <span>{children}</span>
-    </button>
-  );
+export function DangerButton({ children, type = 'button', ...rest }) {
+  return <button type={type} className="btn danger" {...rest}>{children}</button>;
 }
 
 /** A checkbox that can also show "some selected". */
@@ -152,5 +140,27 @@ export function ImportanceChart({ items, limit = 9 }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * A student's estimates through the year as a tiny line, for cards. Drawn at a
+ * fixed size, with the threshold dotted and the last point marked.
+ * points: [{ prediction_point, probability, threshold }] in checkpoint order
+ */
+export function Sparkline({ points, width = 120, height = 32 }) {
+  if (!points?.length) return null;
+  const pad = 4;
+  const x = (i) => (points.length < 2 ? width / 2 : pad + (i * (width - 2 * pad)) / (points.length - 1));
+  const y = (v) => pad + (1 - v) * (height - 2 * pad);
+  const last = points[points.length - 1];
+  const words = points.map((p) => `${p.prediction_point} ${Math.round(p.probability * 100)}%`).join(', ');
+  return (
+    <svg className="sparkline" width={width} height={height} role="img" aria-label={`Estimated risk through the year: ${words}`}>
+      <title>{words}</title>
+      <line x1={pad} x2={width - pad} y1={y(last.threshold)} y2={y(last.threshold)} className="spark-threshold" />
+      <polyline points={points.map((p, i) => `${x(i)},${y(p.probability)}`).join(' ')} fill="none" className="spark-line" />
+      <circle cx={x(points.length - 1)} cy={y(last.probability)} r="3" className={last.probability >= last.threshold ? 'spark-dot risk' : 'spark-dot'} />
+    </svg>
   );
 }
