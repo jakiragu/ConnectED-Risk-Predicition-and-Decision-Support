@@ -100,6 +100,7 @@ type Assignment {
 type Teacher {
   teacher_id: ID!                 # the Cognito sub
   school_id: ID!
+  school_name: String
   email: String!
   first_name: String!
   last_name: String!
@@ -716,6 +717,13 @@ input UpdateTeacherInput {
   _version: Int!
 }
 
+input UpdateMyProfileInput {
+  school_id: ID!
+  first_name: String
+  last_name: String
+  _version: Int!
+}
+
 input AssignmentInput {
   class_id: ID!
   subject: String!
@@ -1189,6 +1197,7 @@ type Mutation {
 
   createTeacher(input: CreateTeacherInput!): TeacherAccount!                 # Admin; creates the sign-in account
   updateTeacher(input: UpdateTeacherInput!): Teacher!                        # Admin
+  updateMyProfile(input: UpdateMyProfileInput!): Teacher!
   setTeacherAssignments(input: SetTeacherAssignmentsInput!): Teacher!        # Admin
   setClassTeacher(input: SetClassTeacherInput!): Class!                      # Admin
   deactivateTeacher(input: TeacherRefInput!): Teacher!                       # Admin

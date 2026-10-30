@@ -29,6 +29,8 @@ export async function handler(event) {
       return createTeacher(actor, input);
     case 'updateTeacher':
       return updateTeacher(actor, input);
+    case 'updateMyProfile':
+      return updateMyProfile(actor, input);
     case 'setTeacherAssignments':
       return setTeacherAssignments(actor, input);
     case 'setClassTeacher':
@@ -85,6 +87,7 @@ const staleOr = (e) => {
 const teacherView = (t) => ({
   teacher_id: t.teacher_id,
   school_id: t.school_id,
+  school_name: t.school_name ?? null,
   email: t.email,
   first_name: t.first_name,
   last_name: t.last_name,
@@ -142,7 +145,15 @@ async function loadStudent(schoolId, studentId) {
 // --------------------------------------------------------------- teachers
 
 async function me(actor) {
-  return teacherView(await loadTeacher(actor.schoolId, actor.sub));
+  const [teacher, schoolProfile] = await Promise.all([
+    loadTeacher(actor.schoolId, actor.sub),
+    platform.school(actor.schoolId),
+  ]);
+
+  return {
+    ...teacherView(teacher),
+    school_name: schoolProfile?.name ?? null,
+  };
 }
 
 async function listTeachers(actor, { school_id }) {
@@ -203,6 +214,32 @@ async function updateTeacher(actor, input) {
   // The record is authoritative; bring the account in line (idempotent, so a retry repairs a partial failure).
   await identity.setRole(updated.teacher_id, updated.role);
   if (fullName(updated) !== fullName(existing)) await identity.setName(updated.teacher_id, fullName(updated));
+  return teacherView(updated);
+}
+
+async function updateMyProfile(actor, input) {
+  const existing = await loadTeacher(input.school_id, actor.sub);
+
+  const patch = {
+    first_name: input.first_name != null
+      ? requireText(input.first_name, 'first_name', 'first name')
+      : undefined,
+    last_name: input.last_name != null
+      ? requireText(input.last_name, 'last_name', 'last name')
+      : undefined,
+  };
+
+  const updated = await school.updateTeacher(
+    input.school_id,
+    actor.sub,
+    patch,
+    input._version
+  ).catch(staleOr);
+
+  if (fullName(updated) !== fullName(existing)) {
+    await identity.setName(updated.teacher_id, fullName(updated));
+  }
+
   return teacherView(updated);
 }
 

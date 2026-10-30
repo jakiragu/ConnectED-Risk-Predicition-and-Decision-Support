@@ -60,6 +60,7 @@ export const RESOLVERS = {
     requestReportCardDownload: resultsService,
     createTeacher: schoolService,
     updateTeacher: schoolService,
+    updateMyProfile: schoolService,
     setTeacherAssignments: schoolService,
     setClassTeacher: schoolService,
     deactivateTeacher: schoolService,

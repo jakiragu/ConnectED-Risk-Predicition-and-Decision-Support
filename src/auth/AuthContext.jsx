@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { setTokenProvider } from '../api/graphql.js';
+import { gql, setTokenProvider } from '../api/graphql.js';
+import { ME } from '../api/operations.js';
 import { openFor } from '../offline/db.js';
 import { refresh } from './cognito.jsx';
 
@@ -52,6 +53,7 @@ export function AuthProvider({ children }) {
   const current = useRef(session);
   const renewing = useRef(null);
   const failedAt = useRef(0);
+  const [profile, setProfile] = useState(null);
 
   const save = (next, remember = localStorage.getItem(KEY) !== null) => {
     const stamped = next && !next.obtainedAt
@@ -118,12 +120,69 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  useEffect(() => {
+    const claims = session?.idToken ? decode(session.idToken) : null;
+
+    if (!claims?.sub || !claims?.['custom:school_id']) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+    const localDb = openFor(claims.sub);
+    const cacheKey = 'account-profile';
+
+    async function loadProfile() {
+      // Show the previously saved profile immediately, including offline.
+      const cached = await localDb.cache.get(cacheKey);
+
+      if (active && cached?.value) {
+        setProfile(cached.value);
+      }
+
+      // Refresh the profile when a connection is available.
+      if (!navigator.onLine) return;
+
+      try {
+        const { me } = await gql(ME, {
+          school_id: claims?.['custom:school_id'],
+        });
+
+        const nextProfile = {
+          first_name: me.first_name,
+          last_name: me.last_name,
+          school_name: me.school_name,
+        };
+
+        await localDb.cache.put({
+          key: cacheKey,
+          value: nextProfile,
+          updated_at: new Date().toISOString(),
+        });
+
+        if (active) setProfile(nextProfile);
+      } catch (error) {
+        console.warn('Could not refresh account profile:', error);
+      }
+    }
+
+    loadProfile();
+
+    const refreshWhenOnline = () => loadProfile();
+    window.addEventListener('online', refreshWhenOnline);
+
+    return () => {
+      active = false;
+      window.removeEventListener('online', refreshWhenOnline);
+    };
+  }, [session]);
+
   const value = useMemo(() => {
     const claims = session?.idToken ? decode(session.idToken) : null;
     const actor = claims
       ? {
           sub: claims.sub,
-          name: claims.name || claims.email,
+          name: claims.name || null,
           email: claims.email,
           groups: claims['cognito:groups'] || [],
           schoolId: claims['custom:school_id'],
@@ -139,10 +198,16 @@ export function AuthProvider({ children }) {
       signOut() {
         save(null);
       },
+      profile,
+      displayName:
+        [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
+        actor?.name ||
+        'Teacher',
+      schoolName: profile?.school_name || '',
     };
-  }, [session]);
+  }, [session, profile]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{...value, profile, displayName, updateUserProfile}}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

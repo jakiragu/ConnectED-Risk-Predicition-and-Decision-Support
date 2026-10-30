@@ -20,7 +20,7 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString() : '');
  * signals from the risk model, not judgements about students.
  */
 export default function Dashboard() {
-  const { actor, isAdmin } = useAuth();
+  const { actor, isAdmin, displayName } = useAuth();
   const { online } = useSync();
   const [view, setView] = useState({ data: null, savedAt: null, fromDevice: false });
   const [loading, setLoading] = useState(true);
@@ -61,7 +61,7 @@ export default function Dashboard() {
   return (
     <div className="stack">
       <div className="page-head">
-        <h1>Hello, {actor.name}</h1>
+        <h1>Hello, {displayName}</h1>
         {d?.term_name && <span className="hint">{d.term_name}</span>}
       </div>
       {view.fromDevice && <div className="notice">You are offline. This is the copy saved on this device at {when(view.savedAt)}.</div>}

@@ -25,7 +25,7 @@ export default function SignIn() {
 
   function finish(tokens) {
     signIn(tokens, rememberMe);
-    navigate('/classes');
+    navigate('/dashboard');
   }
 
   async function submit(e) {

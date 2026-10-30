@@ -22,10 +22,11 @@ const NAV = [
   { to: '/school-risk', label: 'School risk', show: ({ isAdmin }) => isAdmin },
   { to: '/teachers', label: 'Teachers', show: ({ isAdmin }) => isAdmin },
   { to: '/terms', label: 'Terms', show: ({ isAdmin }) => isAdmin },
+  { to: '/profile', label: 'My Profile' },
 ];
 
 export default function Layout() {
-  const { actor, isAdmin, signOut } = useAuth();
+  const { actor, isAdmin, signOut, displayName, schoolName } = useAuth();
   const classes = useLive(() => db().classes.toArray(), [], []);
   const isClassTeacher = classes.some((c) => c.is_class_teacher);
   const navigate = useNavigate();
@@ -69,10 +70,10 @@ export default function Layout() {
         <header className="topbar">
           <GlobalSearch />
           <SyncBar />
-          <div className="who">
-            <span>{actor?.name}</span>
-            <span>{isAdmin ? 'Admin' : isClassTeacher ? 'Teacher · class teacher' : 'Teacher'}</span>
-          </div>
+          <NavLink to="/profile" className="who profile-link">
+            <span>{displayName}</span>
+            <span>{schoolName || 'School profile unavailable'}</span>
+          </NavLink>
         </header>
         <main className="page">
           <Outlet />
