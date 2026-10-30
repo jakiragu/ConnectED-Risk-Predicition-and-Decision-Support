@@ -17,7 +17,8 @@ const decode = (token) => {
 
 const load = () => {
   try {
-    return JSON.parse(localStorage.getItem(KEY)) || null;
+    const storedSession = localStorage.getItem(KEY) ?? sessionStorage.getItem(KEY);
+    return storedSession ? JSON.parse(storedSession) : null;
   } catch {
     return null;
   }
@@ -52,10 +53,26 @@ export function AuthProvider({ children }) {
   const renewing = useRef(null);
   const failedAt = useRef(0);
 
-  const save = (next) => {
-    const stamped = next && !next.obtainedAt ? { ...next, obtainedAt: Date.now() } : next;
-    if (stamped) localStorage.setItem(KEY, JSON.stringify(stamped));
-    else localStorage.removeItem(KEY);
+  const save = (next, remember = localStorage.getItem(KEY) !== null) => {
+    const stamped = next && !next.obtainedAt
+      ? { ...next, obtainedAt: Date.now() }
+      : next;
+
+    if (stamped) {
+      const serialized = JSON.stringify(stamped);
+
+      if (remember) {
+        localStorage.setItem(KEY, serialized);
+        sessionStorage.removeItem(KEY);
+      } else {
+        sessionStorage.setItem(KEY, serialized);
+        localStorage.removeItem(KEY);
+      }
+    } else {
+      localStorage.removeItem(KEY);
+      sessionStorage.removeItem(KEY);
+    }
+
     current.current = stamped;
     setSession(stamped);
   };
@@ -116,8 +133,8 @@ export function AuthProvider({ children }) {
     return {
       actor,
       isAdmin: Boolean(actor?.groups.includes('Admin')),
-      signIn(tokens) {
-        save(tokens);
+      signIn(tokens, rememberMe = false) {
+        save(tokens, rememberMe);
       },
       signOut() {
         save(null);

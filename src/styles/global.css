@@ -34,7 +34,7 @@ a { color: var(--ink); }
 
 .sidebar { background: var(--bg); border-right: 1px solid var(--line-soft); padding: var(--space-5) 0; }
 .brand { padding: 0 var(--space-5) var(--space-6); }
-.brand-name { font-size: var(--t-2xl); font-weight: 700; color: var(--ink); line-height: 1.1; }
+.brand-name { font-size: 2.7rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
 .brand-sub { font-size: var(--t-base); font-weight: 700; color: var(--ink); }
 
 .nav { display: flex; flex-direction: column; }
@@ -120,7 +120,7 @@ td.actions > * + * { margin-left: var(--space-3); }
   padding: var(--space-5);
 }
 .card.error-card { border-color: var(--danger); color: var(--danger); }
-.form-card { max-width: 460px; margin: var(--space-7) auto; }
+.form-card { max-width: 480px; margin: var(--space-7) auto; }
 .form-card .stack { display: flex; flex-direction: column; gap: var(--space-4); }
 
 .budget-row { display: flex; gap: var(--space-4); flex-wrap: wrap; font-size: var(--t-sm); color: var(--muted); }
@@ -429,3 +429,85 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .ratebar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink-strong); }
 .ratebar b { min-width: 3.25rem; text-align: right; font-variant-numeric: tabular-nums; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- sign-in remember-me checkbox and forgot password link ---- */
+.remember-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--t-sm);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.remember-row input[type='checkbox'] {
+  flex: 0 0 auto;
+}
+
+.auth-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.auth-options .btn {
+  font-size: var(--t-sm);
+}
+
+/* ---- Google sign-in button ---- */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+
+.google-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-soft);
+}
+
+.google-btn:hover {
+  background: var(--surface);
+  border-color: var(--ink);
+}
+
+.google-mark {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #4285F4;
+}
+
+.auth-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--info-soft);
+  color: var(--body);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .auth-options {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+}

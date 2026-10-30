@@ -9,19 +9,61 @@ export default function SignIn() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [resetStep, setResetStep] = useState(null);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetNotice, setResetNotice] = useState(null);
   const [challenge, setChallenge] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [googleNotice, setGoogleNotice] = useState(null);
 
   function finish(tokens) {
-    signIn(tokens);
+    signIn(tokens, rememberMe);
     navigate('/classes');
   }
 
   async function submit(e) {
     e.preventDefault();
+
+    if (resetStep === 'email') {
+      if (!resetEmail.trim()) return;
+
+      setResetNotice(
+        'Frontend preview: no verification email has been sent. Cognito integration is required.'
+      );
+      setResetStep('code');
+      return;
+    }
+
+    if (resetStep === 'code') {
+      if (!resetCode.trim()) {
+        setResetNotice('Enter the verification code.');
+        return;
+      }
+
+      if (resetPassword.length < 8) {
+        setResetNotice('Your new password must contain at least 8 characters.');
+        return;
+      }
+
+      if (resetPassword !== resetConfirm) {
+        setResetNotice('The two passwords do not match.');
+        return;
+      }
+
+      setResetNotice(
+        'Frontend preview only: the code has not been verified and your password has not been changed.'
+      );
+      setResetStep('complete');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
@@ -44,16 +86,158 @@ export default function SignIn() {
     <div className="page" style={{ minHeight: '100vh', justifyContent: 'center' }}>
       <div style={{ textAlign: 'center' }}>
         <p style={{ color: 'var(--muted)', margin: 0 }}>Welcome back to</p>
-        <div className="brand-name" style={{ fontSize: 'var(--t-3xl)' }}>ConnectED</div>
+        <div className="brand-name">ConnectED</div>
         <div className="brand-sub">Exam and Gradebook System</div>
       </div>
 
       <form className="card form-card" onSubmit={submit} style={{ marginTop: 0 }}>
         <div className="stack">
-          <h2>{challenge ? 'Choose your own password.' : 'Fill out the following form to log in.'}</h2>
+          {!resetStep && (
+            <h2>{challenge ? 'Choose your own password.' : 'Fill out the following form to log in.'}</h2>
+          )}
+
           {error && <div className="error">{error}</div>}
 
-          {!challenge ? (
+          {resetStep === 'email' ? (
+          <>
+            <h2>Reset your password</h2>
+
+            <p className="hint">
+              Enter the email address associated with your ConnectED account.
+              We'll use it to identify your account for password recovery.
+            </p>
+
+            <div className="auth-notice">
+              Frontend preview only. Email delivery is not yet connected.
+            </div>
+
+            <Field label="Email address" htmlFor="resetEmail">
+              <input
+                id="resetEmail"
+                type="email"
+                autoComplete="email"
+                placeholder="Enter your registered email"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                required
+              />
+            </Field>
+
+            <button className="btn" type="submit">
+              Continue
+            </button>
+
+            <button
+              type="button"
+              className="btn link"
+              onClick={() => {
+                setResetStep(null);
+                setResetNotice(null);
+              }}
+            >
+              Back to login
+            </button>
+          </>
+        ) : resetStep === 'code' ? (
+          <>
+            <h2>Verify your email</h2>
+
+            <p className="hint">
+              Enter the verification code and choose a new password for your account.
+            </p>
+
+            <div className="auth-notice">
+              Frontend preview only. No verification code has been sent.
+            </div>
+
+            <Field label="Verification code" htmlFor="resetCode">
+              <input
+                id="resetCode"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="Enter verification code"
+                value={resetCode}
+                onChange={(e) => setResetCode(e.target.value)}
+                required
+              />
+            </Field>
+
+            <Field label="New password" htmlFor="resetPassword">
+              <input
+                id="resetPassword"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Enter new password"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                required
+              />
+            </Field>
+
+            <Field label="Confirm new password" htmlFor="resetConfirm">
+              <input
+                id="resetConfirm"
+                type="password"
+                autoComplete="new-password"
+                placeholder="Confirm new password"
+                value={resetConfirm}
+                onChange={(e) => setResetConfirm(e.target.value)}
+                required
+              />
+            </Field>
+
+            {resetNotice && (
+              <div className="auth-notice" role="status">
+                {resetNotice}
+              </div>
+            )}
+
+            <button className="btn" type="submit">
+              Preview password reset
+            </button>
+
+            <button
+              type="button"
+              className="btn link"
+              onClick={() => {
+                setResetStep('email');
+                setResetNotice(null);
+              }}
+            >
+              Back
+            </button>
+          </>
+        ) : resetStep === 'complete' ? (
+          <>
+            <h2>Password reset preview</h2>
+
+            <p className="hint">
+              You have reached the end of the frontend password-reset preview.
+              No password has actually been changed.
+            </p>
+
+            <div className="auth-notice">
+              Complete the AWS Cognito integration to enable real password recovery.
+            </div>
+
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setResetStep(null);
+                setResetEmail('');
+                setResetCode('');
+                setResetPassword('');
+                setResetConfirm('');
+                setResetNotice(null);
+                setPassword('');
+              }}
+            >
+              Return to login
+            </button>
+          </>
+        ) : !challenge ? (
             <>
               <Field label="Email" htmlFor="email">
                 <input id="email" type="email" autoComplete="username" placeholder="Enter school email address"
@@ -63,6 +247,21 @@ export default function SignIn() {
                 <input id="password" type="password" autoComplete="current-password" placeholder="•••••••"
                   value={password} onChange={(e) => setPassword(e.target.value)} required />
               </Field>
+              <div className="auth-options">
+                <label className="remember-row" htmlFor="rememberMe">
+                  <input id="rememberMe" type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)}/>
+                  <span>Remember me on this device</span>
+                </label>
+                <button type="button" className="btn link"
+                  onClick={() => {
+                    setResetEmail(email);
+                    setResetNotice(null);
+                    setResetStep('email');
+                  }}
+                >
+                  Forgot password?
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -78,9 +277,38 @@ export default function SignIn() {
             </>
           )}
 
-          <button className="btn" type="submit" disabled={busy}>
-            {busy ? 'Please wait' : challenge ? 'Set password and log in' : 'Log in'}
-          </button>
+          {!resetStep && (
+            <>
+              <button className="btn" type="submit" disabled={busy}>
+                {busy ? 'Please wait' : challenge ? 'Set password and log in' : 'Log in'}
+              </button>
+
+              {!challenge && (
+                <>
+                  <div className="auth-divider">
+                    <span>OR</span>
+                  </div>
+
+                  <button className="btn google-btn" type="button"
+                    onClick={() =>
+                      setGoogleNotice(
+                        'Google sign-in will be available after the AWS Cognito integration.'
+                      )
+                    }
+                  >
+                    <span className="google-mark" aria-hidden="true">G</span>
+                    Continue with Google
+                  </button>
+
+                  {googleNotice && (
+                    <p className="auth-notice" role="status">
+                      {googleNotice}
+                    </p>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
       </form>
     </div>
