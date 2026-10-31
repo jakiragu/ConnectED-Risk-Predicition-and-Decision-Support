@@ -122,6 +122,7 @@ export default function Assessments() {
       .map((t) => ({ ...t, remaining: TOTAL_WEIGHT - t.weight })),
     [list]
   );
+  const incompleteBudgets = budgets.filter((b) => b.remaining !== 0);
 
   const klass = classes.find((c) => c.class_id === classId);
   const className = klass?.name;
@@ -163,11 +164,17 @@ export default function Assessments() {
 
       {budgets.length > 0 && (
         <div className="budget-row">
-          {budgets.map((b) => (
-            <span key={`${b.subject}|${b.assessment_type}`} className={`budget ${b.remaining === 0 ? '' : 'warn'}`}>
-              {b.subject} {b.assessment_type}: {b.remaining === 0 ? <b>100% assigned</b> : <><b>{b.remaining}%</b> unassigned</>}
+          {incompleteBudgets.length > 0 ? (
+            incompleteBudgets.map((b) => (
+              <span key={`${b.subject}|${b.assessment_type}`} className="budget warn">
+                {b.subject} {b.assessment_type}: <b>{b.remaining}%</b> unassigned
+              </span>
+            ))
+          ) : (
+            <span className="budget">
+              All checkpoint budgets are fully allocated (100%).
             </span>
-          ))}
+          )}
         </div>
       )}
 

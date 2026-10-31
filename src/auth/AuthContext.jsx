@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { gql, setTokenProvider } from '../api/graphql.js';
 import { ME } from '../api/operations.js';
 import { openFor } from '../offline/db.js';
@@ -177,6 +177,26 @@ export function AuthProvider({ children }) {
     };
   }, [session]);
 
+  const updateUserProfile = useCallback((nextProfile) => {
+    setProfile(nextProfile);
+
+    const claims = session?.idToken ? decode(session.idToken) : null;
+
+    if (claims?.sub) {
+      openFor(claims.sub).cache.put({
+        key: 'account-profile',
+        value: {
+          first_name: nextProfile.first_name,
+          last_name: nextProfile.last_name,
+          school_name: nextProfile.school_name,
+        },
+        updated_at: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Could not cache updated account profile:', error);
+      });
+    }
+  }, [session]);
+
   const value = useMemo(() => {
     const claims = session?.idToken ? decode(session.idToken) : null;
     const actor = claims
@@ -204,10 +224,11 @@ export function AuthProvider({ children }) {
         actor?.name ||
         'Teacher',
       schoolName: profile?.school_name || '',
+      updateUserProfile,
     };
-  }, [session, profile]);
+  }, [session, profile, updateUserProfile,]);
 
-  return <AuthContext.Provider value={{...value, profile, displayName, updateUserProfile}}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

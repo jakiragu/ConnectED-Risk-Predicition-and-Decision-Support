@@ -199,11 +199,57 @@ td.actions > * + * { margin-left: var(--space-3); }
 .issue.warning { background: #fdf3e2; color: var(--warning); }
 .budget.warn, .hint.warn { color: var(--warning); }
 .weights-card { margin-bottom: var(--space-4); display: grid; gap: var(--space-3); }
-.weights-head { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.weights-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .weights-head h2 { margin: 0; }
+.weights-help {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.weights-help .hint {
+  max-width: 32rem;
+  text-align: right;
+}
+.weights-help-toggle {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+.weights-help-toggle:hover {
+  background: var(--surface-alt);
+  border-color: var(--accent);
+  color: var(--ink-strong);
+}
 .weights-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
 .weight-input { display: inline-flex; align-items: center; gap: var(--space-2); }
 .weight-input input { width: 72px; }
+
+@media (max-width: 600px) {
+  .weights-head {
+    align-items: flex-start;
+  }
+
+  .weights-help {
+    flex-wrap: wrap;
+  }
+
+  .weights-help .hint {
+    max-width: 100%;
+    text-align: left;
+  }
+}
 
 /* ---- people, classes, report cards ---- */
 .manage h3 { margin: var(--space-2) 0 0; font-size: var(--t-base); }

@@ -21,7 +21,7 @@ const fullName = (person) =>
     .join(' ');
 
 export default function Profile() {
-  const { actor, isAdmin } = useAuth();
+  const { actor, isAdmin, updateUserProfile  } = useAuth();
   const { online } = useSync();
 
   const [profile, setProfile] = useState(null);
@@ -121,6 +121,7 @@ export default function Profile() {
       });
 
       setProfile(updateMyProfile);
+      updateUserProfile(updateMyProfile);
       setFirstName(updateMyProfile.first_name || '');
       setLastName(updateMyProfile.last_name || '');
       setNotice('Your personal details have been updated.');
@@ -318,63 +319,62 @@ export default function Profile() {
         </div>
       </section>
 
-      {/* Teaching responsibilities: read-only */}
-      <section className="card stack">
-        <h2>Teaching Responsibilities</h2>
+      {!isAdmin && (
+        <>
+          {/* Teaching responsibilities: read-only */}
+          <section className="card stack">
+            <h2>Teaching Responsibilities</h2>
 
-        <div className="hint">
-          These responsibilities reflect the classes and subjects currently
-          assigned to your account.
-        </div>
+            <div className="hint">
+              These responsibilities reflect the classes and subjects currently
+              assigned to your account.
+            </div>
 
-        <div className="stack">
-          <Field label="Class teacher of">
-            <input
-              value={classTeacherName || 'Not assigned'}
-              readOnly
-              disabled
-            />
-          </Field>
-        </div>
+            <div className="stack">
+              <Field label="Class teacher of">
+                <input
+                  value={classTeacherName || 'Not assigned'}
+                  readOnly
+                  disabled
+                />
+              </Field>
+            </div>
 
-        <h3>Assigned Classes and Subjects</h3>
+            <h3>Assigned Classes and Subjects</h3>
 
-        {isAdmin ? (
-          <div className="notice">
-            As an administrator, you have school-wide access to the
-            gradebook and its academic records.
-          </div>
-        ) : assignments.length === 0 ? (
-          <div className="hint">
-            You currently have no teaching assignments.
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Class</th>
-                  <th>Subject</th>
-                </tr>
-              </thead>
+            {assignments.length === 0 ? (
+              <div className="hint">
+                You currently have no teaching assignments.
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Class</th>
+                      <th>Subject</th>
+                    </tr>
+                  </thead>
 
-              <tbody>
-                {assignments.map((assignment) => (
-                  <tr
-                    key={`${assignment.class_id}|${assignment.subject}`}
-                  >
-                    <td>
-                      {classNames.get(assignment.class_id) ||
-                        assignment.class_id}
-                    </td>
-                    <td>{assignment.subject}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                  <tbody>
+                    {assignments.map((assignment) => (
+                      <tr
+                        key={`${assignment.class_id}|${assignment.subject}`}
+                      >
+                        <td>
+                          {classNames.get(assignment.class_id) ||
+                            assignment.class_id}
+                        </td>
+                        <td>{assignment.subject}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }
