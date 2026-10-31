@@ -15,7 +15,7 @@ import {
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { useSync } from '../offline/useSync.js';
-import { DangerButton } from '../components/ui.jsx';
+import { DangerButton, ActionIcon } from '../components/ui.jsx';
 
 const ROLES = ['Teacher', 'Admin'];
 const EMPTY = { first_name: '', last_name: '', email: '', role: 'Teacher' };
@@ -119,8 +119,11 @@ function Manage({ teacher, classes, isSelf, run }) {
                     <td>{byId.get(a.class_id)?.name || a.class_id}</td>
                     <td>{a.subject}</td>
                     <td className="actions">
-                      <DangerButton icon="x"
-                        onClick={() => setAssignments(assignments.filter((x) => x !== a))}>Remove</DangerButton>
+                      <DangerButton className="link" aria-label={`Remove ${a.subject} assignment`} title="Remove assignment"
+                        onClick={() => setAssignments(assignments.filter((x) => x !== a))}
+                      >
+                        <ActionIcon name="trash" />
+                      </DangerButton>
                     </td>
                   </tr>
                 ))}

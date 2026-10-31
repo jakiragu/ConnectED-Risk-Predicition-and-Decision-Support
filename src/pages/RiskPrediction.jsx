@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import RiskExplanation from '../components/RiskExplanation.jsx';
-import { EmptyState, ImportanceChart, Info, Notice, Offline, RiskBar, useToast } from '../components/ui.jsx';
+import { EmptyState, ImportanceChart, Info, Notice, Offline, RiskBar, useToast, ActionIcon } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -266,8 +266,21 @@ export default function RiskPrediction() {
                         : <span className="hint">None</span>}
                     </td>
                     <td className="actions">
-                      {p && <button type="button" className="btn link" onClick={() => openDetail(r)}>Details</button>}
-                      <Link to={`/students/${r.student_id}/risk`} state={{ from: `${location.pathname}${location.search}` }}>Profile</Link>
+                      <td className="actions">
+                      {p && (
+                        <button type="button" className="btn link" aria-label={`View prediction details for ${r.first_name} ${r.last_name}`} title="Details"
+                          onClick={() => openDetail(r)}
+                        >
+                          <ActionIcon name="eye" />
+                        </button>
+                      )}
+
+                      <Link to={`/students/${r.student_id}/risk`} state={{ from: `${location.pathname}${location.search}` }}
+                        className="btn link" aria-label={`View risk profile for ${r.first_name} ${r.last_name}`} title="Profile"
+                      >
+                        <ActionIcon name="users" />
+                      </Link>
+                    </td>
                     </td>
                   </tr>
                 );

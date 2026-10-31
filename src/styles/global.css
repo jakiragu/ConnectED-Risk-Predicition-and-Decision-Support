@@ -1,5 +1,5 @@
 @import './tokens.css';
-@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Goldman:wght@400;700&family=Quicksand:wght@400;500;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -34,10 +34,10 @@ a { color: var(--ink); }
 
 .sidebar { background: var(--bg); border-right: 1px solid var(--line-soft); padding: var(--space-5) 0; }
 .brand { padding: 0 var(--space-5) var(--space-6); }
-.brand-name { font-size: 2.7rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
-.sidebar .brand-name { font-size: 2.4rem}
-.brand-sub { font-size: var(--t-base); font-weight: 700; color: var(--ink); }
-.sidebar .brand-sub { font-size: 0.9rem}
+.brand-name { font-family: 'Goldman', sans-serif; font-size: 2.5rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.sidebar .brand-name { font-size: 2.0rem}
+.brand-sub { font-family: 'Goldman', sans-serif; font-size: var(--t-base); font-weight: 700; color: var(--ink); }
+.sidebar .brand-sub { font-size: 0.77rem}
 
 .nav { display: flex; flex-direction: column; }
 .nav a {
@@ -63,6 +63,39 @@ a { color: var(--ink); }
 .page { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-5); }
 .page-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
 .page-head h1 { margin-right: auto; }
+
+/* ------------------------------------------------------------ breadcrumbs */
+
+.breadcrumbs {
+  font-size: var(--t-sm);
+  color: var(--muted);
+}
+.breadcrumbs ol {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.breadcrumbs li + li::before {
+  content: '/';
+  color: var(--muted);
+  margin-right: var(--space-2);
+}
+.breadcrumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.breadcrumbs a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.breadcrumbs [aria-current='page'] {
+  color: var(--ink);
+  font-weight: 600;
+}
 
 /* ----------------------------------------------------------------- inputs */
 
@@ -109,9 +142,27 @@ tbody td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(
 tbody tr:nth-child(even) { background: var(--surface-alt); }
 tbody tr.empty td { text-align: center; color: var(--muted); padding: var(--space-6); }
 /* A cell must stay a table cell; display:flex here broke the row lines. Its contents sit in a row instead. */
-td.actions { white-space: nowrap; }
+td.actions { white-space: nowrap;}
 td.actions > * + * { margin-left: var(--space-3); }
+td.actions .btn.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+td.actions .btn.danger {
+  background: none;
+}
 .row-actions { display: inline-flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
+.student-actions .row-actions {
+  flex-wrap: nowrap;
+}
+.student-actions .move-class-select {
+  width: auto;
+  min-width: 0;
+  max-width: 11rem;
+  flex: 0 1 11rem;
+}
 
 /* ------------------------------------------------------------------ cards */
 
@@ -232,7 +283,7 @@ td.actions > * + * { margin-left: var(--space-3); }
   border-color: var(--accent);
   color: var(--ink-strong);
 }
-.weights-row { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+.weights-row { display: flex; align-items: flex-end; gap: var(--space-4); flex-wrap: wrap; }
 .weight-input { display: inline-flex; align-items: center; gap: var(--space-2); }
 .weight-input input { width: 72px; }
 
@@ -430,6 +481,12 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .period-chip { display: inline-flex; gap: var(--space-2); padding: 2px var(--space-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
 .attendance-table input[type='number'] { width: 5rem; }
 .row-conflict td { background: var(--warning-soft); }
+.attendance-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
 
 /* ---- model data used ---- */
 .data-grid td.missing { color: var(--muted); }

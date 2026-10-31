@@ -4,7 +4,7 @@ import { CHECKPOINTS, CHECKPOINT_LABEL } from '@gradebook/domain/results';
 import { gql } from '../api/graphql.js';
 import { LIST_REPORT_CARDS, LIST_RESULT_SETS, REQUEST_REPORT_CARD_DOWNLOAD } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { Offline } from '../components/ui.jsx';
+import { Offline, ActionIcon } from '../components/ui.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
 import { db } from '../offline/db.js';
@@ -149,8 +149,16 @@ export default function ReportCards() {
                   <td>{c.first_name} {c.last_name}{c.student_status !== 'ACTIVE' && <span className="hint"> (deactivated)</span>}</td>
                   <td>{c.available ? (c.kind === 'OFFICIAL' ? 'Official' : 'Provisional') : <span className="hint">Being produced</span>}</td>
                   <td className="actions">
-                    <button type="button" className="btn link" disabled={!c.available || busy !== null} onClick={() => one(c)}>
-                      {busy === c.student_id ? 'Preparing' : 'Download'}
+                    <button type="button" className="btn link" disabled={!c.available || busy !== null}
+                      aria-label={
+                        busy === c.student_id
+                          ? `Preparing report card for ${c.first_name} ${c.last_name}`
+                          : `Download report card for ${c.first_name} ${c.last_name}`
+                      }
+                      title={busy === c.student_id ? 'Preparing' : 'Download'}
+                      onClick={() => one(c)}
+                    >
+                      <ActionIcon name={busy === c.student_id ? 'loader' : 'download'} />
                     </button>
                   </td>
                 </tr>

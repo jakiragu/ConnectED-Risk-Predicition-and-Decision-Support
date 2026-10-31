@@ -27,13 +27,122 @@ export const Offline = ({ what }) => (
   <EmptyState title="You are offline">{what} needs a connection. Anything you have entered is kept on this device.</EmptyState>
 );
 
+/** Small inline SVG icons for table actions. Icons inherit their colour from the surrounding button or link. */
+export function ActionIcon({ name }) {
+  const paths = {
+    archive: (
+      <>
+        <rect x="3" y="4" width="18" height="5" rx="1" />
+        <path d="M5 9v11h14V9M10 13h4" />
+      </>
+    ),
+    check: (
+      <path d="m5 12 4 4L19 6" />
+    ),
+    clipboard: (
+      <>
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4.5V3h6v1.5" />
+        <path d="M9 10h6M9 14h6M9 18h4" />
+      </>
+    ),
+    download: (
+      <>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="m7 10 5 5 5-5M12 15V3" />
+      </>
+    ),
+    edit: (
+      <>
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z" />
+      </>
+    ),
+    eye: (
+      <>
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </>
+    ),
+    loader: (
+      <>
+        <path d="M12 2v4" />
+        <path d="M12 18v4" />
+        <path d="m4.93 4.93 2.83 2.83" />
+        <path d="m16.24 16.24 2.83 2.83" />
+        <path d="M2 12h4" />
+        <path d="M18 12h4" />
+        <path d="m4.93 19.07 2.83-2.83" />
+        <path d="m16.24 7.76 2.83-2.83" />
+      </>
+    ),
+    lock: (
+      <>
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+      </>
+    ),
+    restore: (
+      <>
+        <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+        <path d="M3 3v5h5M12 7v5l3 2" />
+      </>
+    ),
+    trash: (
+      <>
+        <path d="M3 6h18M8 6V4h8v2" />
+        <path d="m19 6-1 14H6L5 6" />
+        <path d="M10 11v5M14 11v5" />
+      </>
+    ),
+    unlock: (
+      <>
+        <rect x="4" y="10" width="16" height="11" rx="2" />
+        <path d="M8 10V7a4 4 0 0 1 7.5-2" />
+      </>
+    ),
+    users: (
+      <>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="10" cy="7" r="4" />
+        <path d="M20 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+      </>
+    ),
+    x: (
+      <path d="m18 6-12 12M6 6l12 12" />
+    ),
+  };
+
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {paths[name]}
+    </svg>
+  );
+}
+
 /**
  * A destructive action (delete, deactivate, remove). The only red button in the
  * app: red is reserved for actions that cannot easily be undone. Takes the
  * same props as <button>; type defaults to "button" so it never submits a form.
  */
-export function DangerButton({ children, type = 'button', ...rest }) {
-  return <button type={type} className="btn danger" {...rest}>{children}</button>;
+export function DangerButton({ children, type = 'button', className = '', ...rest }) {
+  return (
+    <button type={type} className={`btn danger ${className}`} {...rest}>
+      {children}
+    </button>
+  );
 }
 
 /** A checkbox that can also show "some selected". */

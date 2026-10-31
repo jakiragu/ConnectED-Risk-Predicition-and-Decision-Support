@@ -20,7 +20,7 @@ import { watchClass } from '../offline/syncEngine.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
-import { DangerButton } from '../components/ui.jsx';
+import { DangerButton, ActionIcon } from '../components/ui.jsx';
 
 const TYPE_ORDER = { Opener: 0, 'Mid-term': 1, 'End-term': 2 };
 
@@ -213,32 +213,84 @@ export default function Assessments() {
                 </td>
                 <td className="actions">
                   {!a._failed && (
-                    <Link to={`/assessments/${a.assessment_id}/scores?class=${classId}&term=${termId}`}>
-                      {a.status === 'LOCKED' || !canWrite(a) ? 'View marks' : 'Enter marks'}
+                    <Link
+                      to={`/assessments/${a.assessment_id}/scores?class=${classId}&term=${termId}`}
+                      className="btn link"
+                      aria-label={a.status === 'LOCKED' || !canWrite(a) ? `View marks for ${a.title}` : `Enter marks for ${a.title}`}
+                      title={a.status === 'LOCKED' || !canWrite(a) ? 'View marks' : 'Enter marks'}
+                    >
+                      {a.status === 'LOCKED' || !canWrite(a)
+                        ? <ActionIcon name="eye" />
+                        : 'Enter marks'}
                     </Link>
                   )}
+
                   {!a._pending && online && (
                     <>
                       {a.status === 'LOCKED' && isAdmin && !(a.published_in || []).length && (
-                        <button type="button" className="btn link" onClick={() => unlock(a)}>Unlock</button>
+                        <button
+                          type="button"
+                          className="btn link"
+                          aria-label={`Unlock ${a.title}`}
+                          title="Unlock"
+                          onClick={() => unlock(a)}
+                        >
+                          <ActionIcon name="unlock" />
+                        </button>
                       )}
+
                       {a.status !== 'LOCKED' && canWrite(a) && (
                         <>
-                          <Link to={`/assessments/${a.assessment_id}/edit?class=${classId}&term=${termId}`}>Edit</Link>
+                          <Link
+                            to={`/assessments/${a.assessment_id}/edit?class=${classId}&term=${termId}`}
+                            className="btn link"
+                            aria-label={`Edit ${a.title}`}
+                            title="Edit"
+                          >
+                            <ActionIcon name="edit" />
+                          </Link>
+
                           {canLock && (
-                            <button type="button" className="btn link" onClick={() => lock(a)}>Lock</button>
+                            <button
+                              type="button"
+                              className="btn link"
+                              aria-label={`Lock ${a.title}`}
+                              title="Lock"
+                              onClick={() => lock(a)}
+                            >
+                              <ActionIcon name="lock" />
+                            </button>
                           )}
+
                           {a.score_count === 0 && (
-                            <DangerButton onClick={() => remove(a)}>Delete</DangerButton>
+                            <DangerButton
+                              className="link"
+                              aria-label={`Delete ${a.title}`}
+                              title="Delete"
+                              onClick={() => remove(a)}
+                            >
+                              <ActionIcon name="trash" />
+                            </DangerButton>
                           )}
+
                           {a.score_count > 0 && isAdmin && (
-                            <DangerButton onClick={() => softRemove(a)}>Delete</DangerButton>
+                            <DangerButton
+                              className="link"
+                              aria-label={`Delete ${a.title}`}
+                              title="Delete"
+                              onClick={() => softRemove(a)}
+                            >
+                              <ActionIcon name="trash" />
+                            </DangerButton>
                           )}
                         </>
                       )}
                     </>
                   )}
-                  {!a._pending && !online && <span className="hint">Other changes need a connection</span>}
+
+                  {!a._pending && !online && (
+                    <span className="hint">Other changes need a connection</span>
+                  )}
                 </td>
               </tr>
             ))}

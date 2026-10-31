@@ -92,29 +92,30 @@ export default function Dashboard() {
             </ul>
           )}
           {query.trim().length >= 2 && !found.length && <span className="hint">No student in your classes matches.</span>}
-          {isAdmin && <Link to="/school-risk">School-wide risk overview</Link>}
         </div>
       </div>
 
       {d && (
         <>
-          <section className="stack">
-            <h2>Ongoing interventions</h2>
-            {byFrequency.length === 0 && <div className="hint">No interventions under way. Log one from a student&apos;s risk profile.</div>}
-            {byFrequency.map(([f, items]) => (
-              <div key={f}>
-                <h3 className="sub">{FREQUENCY_LABEL[f]}</h3>
-                <ul className="plain">
-                  {items.map((i) => (
-                    <li key={i.intervention_id}>
-                      {i.method}, <Link to={`/students/${i.student_id}/risk`} state={{ from: '/dashboard' }}><b>{i.student_name}</b></Link>
-                      <span className="hint"> {i.factor} · since {i.started_on}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </section>
+          {!isAdmin && (
+            <section className="stack">
+              <h2>Ongoing interventions</h2>
+              {byFrequency.length === 0 && <div className="hint">No interventions under way. Log one from a student&apos;s risk profile.</div>}
+              {byFrequency.map(([f, items]) => (
+                <div key={f}>
+                  <h3 className="sub">{FREQUENCY_LABEL[f]}</h3>
+                  <ul className="plain">
+                    {items.map((i) => (
+                      <li key={i.intervention_id}>
+                        {i.method}, <Link to={`/students/${i.student_id}/risk`} state={{ from: '/dashboard' }}><b>{i.student_name}</b></Link>
+                        <span className="hint"> {i.factor} · since {i.started_on}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          )}
 
           <section className="stack">
             <h2>Students flagged at risk</h2>

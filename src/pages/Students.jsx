@@ -8,7 +8,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
-import { DangerButton } from '../components/ui.jsx';
+import { DangerButton, ActionIcon } from '../components/ui.jsx';
 
 const EMPTY = { first_name: '', last_name: '', admission_no: '' };
 
@@ -118,9 +118,21 @@ export default function Students() {
                   <td />
                   <td />
                   <td className="actions">
-                    <button type="button" className="btn link"
-                      onClick={() => run(UPDATE_STUDENT, { student_id: s.student_id, ...draft, _version: s._version }, 'Saved')}>Save</button>
-                    <button type="button" className="btn link" onClick={() => setEditing(null)}>Cancel</button>
+                    <button type="button" className="btn link" aria-label="Save student changes" title="Save"
+                      onClick={() => run(
+                        UPDATE_STUDENT,
+                        { student_id: s.student_id, ...draft, _version: s._version },
+                        'Saved'
+                      )}
+                    >
+                      <ActionIcon name="check" />
+                    </button>
+
+                    <button type="button" className="btn link" aria-label="Cancel student editing" title="Cancel"
+                      onClick={() => setEditing(null)}
+                    >
+                      <ActionIcon name="x" />
+                    </button>
                   </td>
                 </tr>
               ) : (
@@ -131,26 +143,51 @@ export default function Students() {
                   <td>{s.status === 'ACTIVE' ? 'Active' : <span className="warn">Deactivated</span>}</td>
                   <td><Link to={`/students/${s.student_id}/risk`} state={{ from: `/classes/${classId}/students` }}>Risk profile</Link></td>
                   {canManage && (
-                    <td className="actions">
-                      <button type="button" className="btn link"
-                        onClick={() => { setEditing(s.student_id); setDraft({ first_name: s.first_name, last_name: s.last_name, admission_no: s.admission_no }); }}>
-                        Edit
+                    <td className="actions student-actions">
+                    <div className="row-actions">
+                      <button type="button" className="btn link" aria-label={`Edit ${s.first_name} ${s.last_name}`} title="Edit"
+                        onClick={() => {
+                          setEditing(s.student_id);
+                          setDraft({
+                            first_name: s.first_name,
+                            last_name: s.last_name,
+                            admission_no: s.admission_no
+                          });
+                        }}
+                      >
+                        <ActionIcon name="edit" />
                       </button>
                       {s.status === 'ACTIVE' ? (
-                        <DangerButton icon="ban"
-                          onClick={() => window.confirm(`Deactivate ${s.first_name} ${s.last_name}? They leave the class list; their marks and report cards stay.`)
-                            && run(SET_STUDENT_STATUS, { student_id: s.student_id, status: 'INACTIVE', _version: s._version }, 'Student deactivated')}>
-                          Deactivate
+                        <DangerButton className="link" aria-label={`Deactivate ${s.first_name} ${s.last_name}`} title="Deactivate"
+                          onClick={() =>
+                            window.confirm(
+                              `Deactivate ${s.first_name} ${s.last_name}? They leave the class list; their marks and report cards stay.`
+                            ) &&
+                            run(
+                              SET_STUDENT_STATUS,
+                              { student_id: s.student_id, status: 'INACTIVE', _version: s._version },
+                              'Student deactivated'
+                            )
+                          }
+                        >
+                          <ActionIcon name="archive" />
                         </DangerButton>
                       ) : (
-                        <button type="button" className="btn link"
-                          onClick={() => run(SET_STUDENT_STATUS, { student_id: s.student_id, status: 'ACTIVE', _version: s._version }, 'Student reactivated')}>
-                          Reactivate
+                        <button type="button" className="btn link" aria-label={`Reactivate ${s.first_name} ${s.last_name}`} title="Reactivate"
+                          onClick={() =>
+                            run(
+                              SET_STUDENT_STATUS,
+                              { student_id: s.student_id, status: 'ACTIVE', _version: s._version },
+                              'Student reactivated'
+                            )
+                          }
+                        >
+                          <ActionIcon name="restore" />
                         </button>
                       )}
                       {isAdmin && s.status === 'ACTIVE' && (
                         <>
-                          <Select aria-label="Move to class" value={transfer[s.student_id] || ''}
+                          <Select className="move-class-select" aria-label="Move to class" value={transfer[s.student_id] || ''}
                             onChange={(v) => setTransfer({ ...transfer, [s.student_id]: v })}
                             options={destinations.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Move to…" />
                           <button type="button" className="btn link" disabled={!transfer[s.student_id]}
@@ -160,6 +197,7 @@ export default function Students() {
                           </button>
                         </>
                       )}
+                    </div>
                     </td>
                   )}
                 </tr>

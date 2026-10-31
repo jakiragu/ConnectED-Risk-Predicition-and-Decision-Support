@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { gql } from '../api/graphql.js';
 import { CREATE_CLASS, DELETE_CLASS, LIST_SCHOOL_CLASSES, UPDATE_CLASS } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { Offline, DangerButton } from '../components/ui.jsx';
+import { Offline, DangerButton, ActionIcon } from '../components/ui.jsx';
 import { Field } from '../components/Field.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
@@ -161,18 +161,53 @@ function SchoolClasses({ schoolId }) {
                   <td>{c.student_count}</td>
                   <td>{c.status === 'CURRENT' ? 'Current' : 'Past'}</td>
                   <td className="actions">
-                    <Link to={`/classes/${c.class_id}/students`}>Students</Link>
-                    <Link to={`/assessments?class=${c.class_id}`}>Assessments</Link>
-                    <button type="button" className="btn link" onClick={() => setEditing(c.class_id)}>Edit</button>
-                    <button type="button" className="btn link"
-                      onClick={() => run(UPDATE_CLASS, { class_id: c.class_id, status: c.status === 'CURRENT' ? 'PAST' : 'CURRENT', _version: c._version },
-                        c.status === 'CURRENT' ? `${c.name} archived` : `${c.name} restored`)}>
-                      {c.status === 'CURRENT' ? 'Archive' : 'Restore'}
+                    <Link to={`/classes/${c.class_id}/students`}
+                      className="btn link" aria-label={`View students in ${c.name}`} title="Students"
+                    >
+                      <ActionIcon name="users" />
+                    </Link>
+
+                    <Link to={`/assessments?class=${c.class_id}`}
+                      className="btn link" aria-label={`View assessments for ${c.name}`} title="Assessments"
+                    >
+                      <ActionIcon name="clipboard" />
+                    </Link>
+
+                    <button type="button" className="btn link" aria-label={`Edit ${c.name}`} title="Edit"
+                      onClick={() => setEditing(c.class_id)}
+                    >
+                      <ActionIcon name="edit" />
                     </button>
-                    <DangerButton icon="trash"
-                      onClick={() => window.confirm(`Delete ${c.name}? Only an empty class can be deleted.`)
-                        && run(DELETE_CLASS, { class_id: c.class_id, _version: c._version }, `${c.name} deleted`)}>
-                      Delete
+
+                    <button type="button" className="btn link" aria-label={c.status === 'CURRENT' ? `Archive ${c.name}` : `Restore ${c.name}`} title={c.status === 'CURRENT' ? 'Archive' : 'Restore'}
+                      onClick={() =>
+                        run(
+                          UPDATE_CLASS,
+                          {
+                            class_id: c.class_id,
+                            status: c.status === 'CURRENT' ? 'PAST' : 'CURRENT',
+                            _version: c._version,
+                          },
+                          c.status === 'CURRENT'
+                            ? `${c.name} archived`
+                            : `${c.name} restored`
+                        )
+                      }
+                    >
+                      <ActionIcon name={c.status === 'CURRENT' ? 'archive' : 'restore'} />
+                    </button>
+
+                    <DangerButton className="link" aria-label={`Delete ${c.name}`} title="Delete"
+                      onClick={() =>
+                        window.confirm(`Delete ${c.name}? Only an empty class can be deleted.`)
+                        && run(
+                          DELETE_CLASS,
+                          { class_id: c.class_id, _version: c._version },
+                          `${c.name} deleted`
+                        )
+                      }
+                    >
+                      <ActionIcon name="trash" />
                     </DangerButton>
                   </td>
                 </tr>
