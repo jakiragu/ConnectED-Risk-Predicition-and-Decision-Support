@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { setTokenProvider } from '../api/graphql.js';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { gql, setTokenProvider } from '../api/graphql.js';
+import { ME } from '../api/operations.js';
 import { openFor } from '../offline/db.js';
 import { refresh } from './cognito.jsx';
 
@@ -17,7 +18,8 @@ const decode = (token) => {
 
 const load = () => {
   try {
-    return JSON.parse(localStorage.getItem(KEY)) || null;
+    const storedSession = localStorage.getItem(KEY) ?? sessionStorage.getItem(KEY);
+    return storedSession ? JSON.parse(storedSession) : null;
   } catch {
     return null;
   }
@@ -51,11 +53,28 @@ export function AuthProvider({ children }) {
   const current = useRef(session);
   const renewing = useRef(null);
   const failedAt = useRef(0);
+  const [profile, setProfile] = useState(null);
 
-  const save = (next) => {
-    const stamped = next && !next.obtainedAt ? { ...next, obtainedAt: Date.now() } : next;
-    if (stamped) localStorage.setItem(KEY, JSON.stringify(stamped));
-    else localStorage.removeItem(KEY);
+  const save = (next, remember = localStorage.getItem(KEY) !== null) => {
+    const stamped = next && !next.obtainedAt
+      ? { ...next, obtainedAt: Date.now() }
+      : next;
+
+    if (stamped) {
+      const serialized = JSON.stringify(stamped);
+
+      if (remember) {
+        localStorage.setItem(KEY, serialized);
+        sessionStorage.removeItem(KEY);
+      } else {
+        sessionStorage.setItem(KEY, serialized);
+        localStorage.removeItem(KEY);
+      }
+    } else {
+      localStorage.removeItem(KEY);
+      sessionStorage.removeItem(KEY);
+    }
+
     current.current = stamped;
     setSession(stamped);
   };
@@ -101,12 +120,89 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  useEffect(() => {
+    const claims = session?.idToken ? decode(session.idToken) : null;
+
+    if (!claims?.sub || !claims?.['custom:school_id']) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+    const localDb = openFor(claims.sub);
+    const cacheKey = 'account-profile';
+
+    async function loadProfile() {
+      // Show the previously saved profile immediately, including offline.
+      const cached = await localDb.cache.get(cacheKey);
+
+      if (active && cached?.value) {
+        setProfile(cached.value);
+      }
+
+      // Refresh the profile when a connection is available.
+      if (!navigator.onLine) return;
+
+      try {
+        const { me } = await gql(ME, {
+          school_id: claims?.['custom:school_id'],
+        });
+
+        const nextProfile = {
+          first_name: me.first_name,
+          last_name: me.last_name,
+          school_name: me.school_name,
+        };
+
+        await localDb.cache.put({
+          key: cacheKey,
+          value: nextProfile,
+          updated_at: new Date().toISOString(),
+        });
+
+        if (active) setProfile(nextProfile);
+      } catch (error) {
+        console.warn('Could not refresh account profile:', error);
+      }
+    }
+
+    loadProfile();
+
+    const refreshWhenOnline = () => loadProfile();
+    window.addEventListener('online', refreshWhenOnline);
+
+    return () => {
+      active = false;
+      window.removeEventListener('online', refreshWhenOnline);
+    };
+  }, [session]);
+
+  const updateUserProfile = useCallback((nextProfile) => {
+    setProfile(nextProfile);
+
+    const claims = session?.idToken ? decode(session.idToken) : null;
+
+    if (claims?.sub) {
+      openFor(claims.sub).cache.put({
+        key: 'account-profile',
+        value: {
+          first_name: nextProfile.first_name,
+          last_name: nextProfile.last_name,
+          school_name: nextProfile.school_name,
+        },
+        updated_at: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Could not cache updated account profile:', error);
+      });
+    }
+  }, [session]);
+
   const value = useMemo(() => {
     const claims = session?.idToken ? decode(session.idToken) : null;
     const actor = claims
       ? {
           sub: claims.sub,
-          name: claims.name || claims.email,
+          name: claims.name || null,
           email: claims.email,
           groups: claims['cognito:groups'] || [],
           schoolId: claims['custom:school_id'],
@@ -116,14 +212,21 @@ export function AuthProvider({ children }) {
     return {
       actor,
       isAdmin: Boolean(actor?.groups.includes('Admin')),
-      signIn(tokens) {
-        save(tokens);
+      signIn(tokens, rememberMe = false) {
+        save(tokens, rememberMe);
       },
       signOut() {
         save(null);
       },
+      profile,
+      displayName:
+        [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
+        actor?.name ||
+        'Teacher',
+      schoolName: profile?.school_name || '',
+      updateUserProfile,
     };
-  }, [session]);
+  }, [session, profile, updateUserProfile,]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

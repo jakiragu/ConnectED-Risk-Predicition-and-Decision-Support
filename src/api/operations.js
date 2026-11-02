@@ -197,7 +197,7 @@ export const PUBLISH_SCHOOL_RESULTS = `
 // ------------------------------------------------------- people and classes
 
 const TEACHER_FIELDS = `
-  teacher_id school_id email first_name last_name role status class_teacher_of
+  teacher_id school_id school_name email first_name last_name role status class_teacher_of
   assignments { class_id subject } created_at updated_at _version
 `;
 const CLASS_FIELDS = `class_id name grade stream year status class_teacher_id class_teacher_name student_count _version`;
@@ -216,6 +216,11 @@ export const CREATE_TEACHER = `
 
 export const UPDATE_TEACHER = `
   mutation UpdateTeacher($input: UpdateTeacherInput!) { updateTeacher(input: $input) { ${TEACHER_FIELDS} } }`;
+
+export const UPDATE_MY_PROFILE = `
+  mutation UpdateMyProfile($input: UpdateMyProfileInput!) {
+    updateMyProfile(input: $input) { ${TEACHER_FIELDS} }
+  }`;
 
 export const SET_TEACHER_ASSIGNMENTS = `
   mutation SetTeacherAssignments($input: SetTeacherAssignmentsInput!) {

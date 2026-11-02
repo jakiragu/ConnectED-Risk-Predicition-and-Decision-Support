@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { gql } from '../api/graphql.js';
 import { GET_GRADE_RULE, SET_CHECKPOINT_WEIGHTS } from '../api/operations.js';
+import { Info } from './ui.jsx';
 
 const FIELDS = [
   { key: 'opener', label: 'Opener' },
@@ -13,6 +14,7 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [showWeightHelp, setShowWeightHelp] = useState(false);
 
   const load = useCallback(async () => {
     if (!termId || !online) return;
@@ -30,8 +32,34 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
   if (!rule) return error ? <div className="card error-card">{error}</div> : null;
 
   const current = rule.checkpoint_weights || {};
-  const values = draft || { opener: current.opener ?? '', midterm: current.midterm ?? '', endterm: current.endterm ?? '' };
-  const total = FIELDS.reduce((t, f) => t + (Number(values[f.key]) || 0), 0);
+  const baseValues = draft || {
+    opener: current.opener ?? '',
+    midterm: current.midterm ?? '',
+    endterm: current.endterm ?? '',
+  };
+
+  const unfilled = FIELDS.filter(
+    (f) => baseValues[f.key] === '' || baseValues[f.key] == null
+  );
+
+  const enteredTotal = FIELDS.reduce(
+    (total, f) => total + (baseValues[f.key] === '' ? 0 : Number(baseValues[f.key]) || 0),
+    0
+  );
+
+  const autoFilledKey =
+    unfilled.length === 1 && enteredTotal <= 100
+      ? unfilled[0].key
+      : null;
+
+  const values = autoFilledKey
+    ? { ...baseValues, [autoFilledKey]: 100 - enteredTotal }
+    : baseValues;
+
+  const total = FIELDS.reduce(
+    (t, f) => t + (Number(values[f.key]) || 0),
+    0
+  );
 
   async function save() {
     setError(null);
@@ -61,7 +89,12 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
     <div className="card weights-card">
       <div className="weights-head">
         <h2>Checkpoint weights</h2>
-        <span className="hint">How much each exam counts towards the term result. They must total 100%.</span>
+
+        <Info label="About checkpoint weights">
+          These weights determine how much the Opener, Mid-term and End of term
+          exams contribute to the overall term result. The three weights must
+          add up to 100%.
+        </Info>
       </div>
       <div className="weights-row">
         {FIELDS.map((f) => (
@@ -73,9 +106,10 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
               max="100"
               value={values[f.key]}
               disabled={rule.checkpoint_weights_locked}
-              onChange={(e) => setDraft({ ...values, [f.key]: e.target.value })}
+              onChange={(e) => setDraft({ ...baseValues, [f.key]: e.target.value })}
             />
             <span>%</span>
+            {autoFilledKey === f.key && <small className="hint">Automatically calculated</small>}
           </label>
         ))}
         <span className={`budget ${total === 100 ? '' : 'warn'}`}>Total: <b>{total}%</b></span>

@@ -35,24 +35,24 @@
   --radius: 8px;
   --radius-lg: 12px;
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
+  --space-1: 3px;
+  --space-2: 6px;
+  --space-3: 10px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
 
   --font: 'Quicksand', ui-rounded, 'Segoe UI', system-ui, sans-serif;
 
-  --t-xs: 0.75rem;
-  --t-sm: 0.875rem;
-  --t-base: 1rem;
-  --t-lg: 1.25rem;
-  --t-xl: 1.563rem;
-  --t-2xl: 1.953rem;
-  --t-3xl: 2.441rem;
+  --t-xs: 0.6875rem;
+  --t-sm: 0.8125rem;
+  --t-base: 0.9375rem;
+  --t-lg: 1.125rem;
+  --t-xl: 1.375rem;
+  --t-2xl: 1.75rem;
+  --t-3xl: 2.125rem;
 
-  --sidebar-w: 264px;
-  --topbar-h: 64px;
+  --sidebar-w: 232px;
+  --topbar-h: 56px;
 }

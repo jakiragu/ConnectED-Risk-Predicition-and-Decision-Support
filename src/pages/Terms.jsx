@@ -3,7 +3,7 @@ import { attendancePeriods, validateTerm } from '@gradebook/domain/calendar';
 import { gql } from '../api/graphql.js';
 import { CREATE_TERM, LIST_TERMS_FULL, UPDATE_TERM } from '../api/calendarOperations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { Offline, DangerButton } from '../components/ui.jsx';
+import { Offline, DangerButton, ActionIcon } from '../components/ui.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
@@ -180,7 +180,11 @@ export default function Terms() {
                     <td>{t.periods.length ? `${t.periods[0].school_days} + ${t.periods[1].school_days} = ${t.school_days}` : '—'}</td>
                     <td>{t.status === 'CURRENT' ? <b>Current</b> : t.status === 'PAST' ? 'Past' : 'Upcoming'}</td>
                     <td className="actions">
-                      <button type="button" className="btn link" onClick={() => setEditing(t)}>Edit</button>
+                      <button type="button" className="btn link" aria-label={`Edit ${t.name}`} title="Edit"
+                        onClick={() => setEditing(t)}
+                      >
+                        <ActionIcon name="edit" />
+                      </button>
                     </td>
                   </tr>
                 ))}

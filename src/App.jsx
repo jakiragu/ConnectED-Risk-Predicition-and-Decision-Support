@@ -14,6 +14,7 @@ import Terms from './pages/Terms.jsx';
 import Attendance from './pages/Attendance.jsx';
 import RiskPrediction from './pages/RiskPrediction.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import Profile from './pages/Profile.jsx';
 import StudentProfile from './pages/StudentProfile.jsx';
 import InterventionForm from './pages/InterventionForm.jsx';
 import SchoolRisk from './pages/SchoolRisk.jsx';
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="terms" element={<RequireAdmin><Terms /></RequireAdmin>} />
         <Route path="attendance" element={<Attendance />} />
         <Route path="risk" element={<RiskPrediction />} />
+        <Route path="profile" element={<Profile />} />
         <Route path="model-inputs" element={<Navigate to="/risk" replace />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

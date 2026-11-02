@@ -54,6 +54,7 @@ export default function Attendance() {
   // Why the class list may be empty: still loading, or the server refused (shown instead of "No class to record").
   const [classesLoaded, setClassesLoaded] = useState(false);
   const [classesError, setClassesError] = useState(null);
+  const [find, setFind] = useState('');
 
   useEffect(() => {
     setClassesError(null);
@@ -88,6 +89,18 @@ export default function Attendance() {
     setSheet(null);
     if (online) load().catch((e) => setError(e.message));
   }, [load, online]);
+
+  const shown = useMemo(() => {
+    const q = find.trim().toLowerCase();
+
+    return q
+      ? (sheet?.students || []).filter((st) =>
+          `${st.first_name} ${st.last_name} ${st.admission_no}`
+            .toLowerCase()
+            .includes(q)
+        )
+      : sheet?.students || [];
+  }, [sheet, find]);
 
   const changed = useMemo(() => (sheet?.students || []).filter((st) => {
     const d = drafts[st.student_id];
@@ -180,13 +193,22 @@ export default function Attendance() {
             {sheet.locked && <span className="pill locked">Locked: end-of-term results are published</span>}
           </div>
 
-          {editable && (
-            <div className="budget-row">
-              <button type="button" className="btn secondary" onClick={fillFull}>Fill blanks with full attendance</button>
-            </div>
-          )}
-
           <div className="table-wrap">
+            <div className="toolbar table-tools attendance-tools">
+              <div className="attendance-search">
+                <input type="search" aria-label="Find a student" placeholder="Find a student by name or admission number" value={find} onChange={(e) => setFind(e.target.value)}/>
+                {find.trim() && (
+                  <span className="hint">
+                    Showing {shown.length} of {sheet.students.length}
+                  </span>
+                )}
+              </div>
+              {editable && (
+                <div className="budget-row">
+                  <button type="button" className="btn secondary" onClick={fillFull}>Fill blanks with full attendance</button>
+                </div>
+              )}
+            </div>
             <table className="attendance-table">
               <thead>
                 <tr>
@@ -195,7 +217,20 @@ export default function Attendance() {
                 </tr>
               </thead>
               <tbody>
-                {sheet.students.map((st) => {
+                {sheet.students.length === 0 && (
+                  <tr className="empty">
+                    <td colSpan={8}>No students are enrolled in this class.</td>
+                  </tr>
+                )}
+
+                {shown.length === 0 && sheet.students.length > 0 && (
+                  <tr className="empty">
+                    <td colSpan={8}>
+                      No student matches “{find.trim()}”.
+                    </td>
+                  </tr>
+                )}
+                {shown.map((st) => {
                   const d = drafts[st.student_id] || { days_attended: '', days_excused: '' };
                   const problem = problems[st.student_id];
                   const note = notes[st.student_id];
@@ -212,7 +247,16 @@ export default function Attendance() {
                       <td><Link to={`/classes/${classId}/students`}>{st.first_name} {st.last_name}</Link></td>
                       <td>
                         <input type="number" min="0" max={sheet.school_days} value={d.days_attended} disabled={!editable}
-                          aria-label={`Days attended by ${st.first_name}`} onChange={(e) => set(st.student_id, { days_attended: e.target.value })} />
+                          aria-label={`Days attended by ${st.first_name}`} 
+                          onChange={(e) => {
+                            const attended = e.target.value;
+                            set(st.student_id, {
+                              days_attended: attended,
+                              ...(attended !== '' && d.days_excused === ''
+                                ? { days_excused: '0' }
+                                : {}),
+                            });
+                          }} />
                       </td>
                       <td>
                         <input type="number" min="0" max={sheet.school_days} value={d.days_excused} disabled={!editable}

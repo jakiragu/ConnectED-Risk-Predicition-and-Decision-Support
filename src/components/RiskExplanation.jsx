@@ -1,4 +1,5 @@
 import { Info, InfluenceChart, Notice, RiskBar } from './ui.jsx';
+import { useEffect, useState } from 'react';
 
 /**
  * One student's estimate, explained for a teacher:
@@ -43,8 +44,15 @@ export function Targets({ targets: t }) {
   if (t.status === 'MAINTAIN') return <Notice tone="success">Keeping the current results and attendance should be enough for the {t.target_label}.</Notice>;
   if (t.status === 'NONE') return <div className="hint">No target: {t.reason}</div>;
   if (t.status === 'ERROR') return <div className="hint">Targets could not be worked out for this estimate.</div>;
-  const [first, ...others] = t.options;
-  if (!first) return <div className="hint">No target for these subjects.</div>;
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [t]);
+
+  if (!t.options?.length) return <div className="hint">No target for these subjects.</div>;
+
+  const selected = t.options[selectedIndex];
   return (
     <div className="stack">
       <div className="row">
@@ -59,11 +67,33 @@ export function Targets({ targets: t }) {
           </span>
         )}
       </div>
+      {t.options.length > 1 && (
+        <div className="stack">
+          <span className="hint">Choose a target option:</span>
+          <div className="row wrap">
+            {t.options.map((option, i) => (
+              <button key={i} type="button" className={`btn ${selectedIndex === i ? '' : 'secondary'}`}
+                aria-pressed={selectedIndex === i} onClick={() => setSelectedIndex(i)}
+              >
+                Option {i + 1}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="table-wrap">
         <table className="targets">
-          <thead><tr><th>Result</th><th className="num">Now</th><th className="num">Target</th><th className="num">Change</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Result</th>
+              <th className="num">Now</th>
+              <th className="num">Target</th>
+              <th className="num">Change</th>
+            </tr>
+          </thead>
           <tbody>
-            {first.changes.map((c) => (
+            {selected.changes.map((c) => (
               <tr key={c.column}>
                 <td>{c.kind === 'attendance' ? 'Attendance' : c.group}</td>
                 <td className="num">{value(c, c.from)}</td>
@@ -74,18 +104,6 @@ export function Targets({ targets: t }) {
           </tbody>
         </table>
       </div>
-      {others.length > 0 && (
-        <details className="more">
-          <summary>{others.length} other way{others.length === 1 ? '' : 's'} to reach it</summary>
-          <ul className="plain">
-            {others.map((o, i) => (
-              <li key={i} className="chips">
-                {o.changes.map((c) => <span key={c.column} className="chip target">{c.kind === 'attendance' ? 'Attendance' : c.group} {gain(c)}</span>)}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
       <div className="hint">A target is what the model would need to see, not a guaranteed outcome. Which support to give is your decision.</div>
     </div>
   );
@@ -122,10 +140,12 @@ export default function RiskExplanation({ explanation: e, name, onClose }) {
 
   return (
     <section className="card panel" aria-label={`Risk estimate for ${name}`}>
-      <div className="panel-head">
+      <div className="panel-head risk-explanation-head">
         <h2>{name}</h2>
-        <RiskBar probability={p.probability} threshold={p.threshold} atRisk={p.at_risk} />
-        <span className={`pill ${p.at_risk ? 'risk' : 'good'}`}>{p.at_risk ? 'At risk' : 'Not flagged'}</span>
+        <div className="risk-explanation-head-mid">
+          <RiskBar probability={p.probability} threshold={p.threshold} atRisk={p.at_risk} />
+          <span className={`pill ${p.at_risk ? 'risk' : 'good'}`}>{p.at_risk ? 'At risk' : 'Not flagged'}</span>
+        </div>
         {onClose && <button type="button" className="btn link" onClick={onClose}>Close</button>}
       </div>
 
