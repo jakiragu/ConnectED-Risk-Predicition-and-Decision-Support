@@ -39,6 +39,24 @@ export const GET_ASSESSMENT = `
     }
   }`;
 
+  export const GET_ASSESSMENT_CONFIG = `
+  query GetAssessmentConfig($school_id: ID!) {
+    getAssessmentConfig(school_id: $school_id) {
+      school_id
+      assessment_scheme {
+        key
+        name
+        order
+        required
+        result_role
+        risk_checkpoint
+      }
+      updated_at
+      _version
+    }
+  }
+`;
+
 export const CREATE_ASSESSMENT = `
   mutation CreateAssessment($input: CreateAssessmentInput!) {
     createAssessment(input: $input) { ${ASSESSMENT_FIELDS} }

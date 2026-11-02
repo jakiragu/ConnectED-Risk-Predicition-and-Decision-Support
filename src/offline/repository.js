@@ -3,6 +3,7 @@ import { gql } from '../api/graphql.js';
 import {
   CREATE_ASSESSMENT,
   GET_ASSESSMENT,
+  GET_ASSESSMENT_CONFIG,
   GET_CLASS_ROSTER,
   LIST_MY_CLASSES,
   RESOLVE_SCORE_CONFLICT,
@@ -82,6 +83,11 @@ export const repository = {
         await db().terms.bulkPut(listTerms);
       });
     }),
+
+  loadAssessmentConfig: (schoolId) =>
+    readThrough(`assessment-config:${schoolId}`, async () =>
+      (await gql(GET_ASSESSMENT_CONFIG, { school_id: schoolId })).getAssessmentConfig
+    ),
 
   loadAssessment: (schoolId, assessmentId) =>
     quietly(async () => {

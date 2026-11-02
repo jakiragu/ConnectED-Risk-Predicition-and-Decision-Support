@@ -213,6 +213,38 @@ type CheckpointWeights {
   endterm: Float
 }
 
+type AssessmentTypeConfig {
+  key: String!
+  name: String!
+  order: Int!
+  required: Boolean!
+  result_role: String!
+  risk_checkpoint: String
+}
+
+type AssessmentConfig {
+  school_id: ID!
+  assessment_scheme: [AssessmentTypeConfig!]!
+  updated_at: AWSDateTime
+  updated_by: ID
+  _version: Int!
+}
+
+input AssessmentTypeConfigInput {
+  key: String!
+  name: String!
+  order: Int!
+  required: Boolean!
+  result_role: String!
+  risk_checkpoint: String
+}
+
+input SaveAssessmentConfigInput {
+  school_id: ID!
+  assessment_scheme: [AssessmentTypeConfigInput!]!
+  _version: Int!
+}
+
 type GradeRule {
   term_id: ID!
   pass_mark: Float
@@ -1146,6 +1178,7 @@ type SchoolRiskOverview {
 
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
+  getAssessmentConfig(school_id: ID!): AssessmentConfig!
   listAssessmentsByClass(
     school_id: ID!, class_id: ID!, term_id: ID!, limit: Int, nextToken: String
   ): Connection_Assessment!
@@ -1181,6 +1214,7 @@ type Query {
 }
 
 type Mutation {
+  saveAssessmentConfig(input: SaveAssessmentConfigInput!): AssessmentConfig!
   createAssessment(input: CreateAssessmentInput!): Assessment
   updateAssessment(input: UpdateAssessmentInput!): Assessment
   lockAssessment(school_id: ID!, assessment_id: ID!): Assessment

@@ -1,5 +1,3 @@
-export const ASSESSMENT_TYPES = ['Opener', 'Mid-term', 'End-term'];
-
 /** Fixed for now; an Admin-managed catalogue will replace this list later. */
 export const SUBJECTS = [
   'Mathematics', 'English', 'Kiswahili', 'Biology', 'Physics', 'Chemistry',
@@ -53,7 +51,7 @@ export function examTotals(assessments) {
  */
 export function validateAssessment(
   input,
-  { siblings = [], termLocked = false, original = null, scoreCount = 0 } = {}
+  { siblings = [], termLocked = false, original = null, scoreCount = 0, assessmentTypes = [], } = {}
 ) {
   const errors = [];
   const add = (field, message) => errors.push({ field, message });
@@ -63,8 +61,8 @@ export function validateAssessment(
   const legacySubject = original && original.subject === input.subject;
   if (!input.subject) add('subject', 'Choose a subject');
   else if (!SUBJECTS.includes(input.subject) && !legacySubject) add('subject', 'Choose a subject from the list');
-  if (!ASSESSMENT_TYPES.includes(input.assessment_type)) {
-    add('assessment_type', `Type must be one of ${ASSESSMENT_TYPES.join(', ')}`);
+  if (!assessmentTypes.includes(input.assessment_type)) {
+    add('assessment_type', 'Choose an assessment type configured for this school');
   }
 
   const paper = Number(input.paper_no);

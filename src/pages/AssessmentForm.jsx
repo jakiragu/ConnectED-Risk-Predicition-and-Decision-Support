@@ -4,7 +4,6 @@ import {
   validateAssessment,
   weightRemaining,
   papersTaken,
-  ASSESSMENT_TYPES,
   SUBJECTS,
   PAPERS,
 } from '@gradebook/domain/assessment';
@@ -22,7 +21,7 @@ import { Field, Select } from '../components/Field.jsx';
 const EMPTY = {
   title: '',
   subject: '',
-  assessment_type: 'Opener',
+  assessment_type: '',
   paper_no: '',
   weight: '',
   max_score: 100,
@@ -52,6 +51,8 @@ export default function AssessmentForm() {
     []
   );
   const [form, setForm] = useState(EMPTY);
+  const [assessmentScheme, setAssessmentScheme] = useState([]);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [titleTouched, setTitleTouched] = useState(false);
   const [version, setVersion] = useState(null);
   const [scoreCount, setScoreCount] = useState(0);
@@ -66,6 +67,41 @@ export default function AssessmentForm() {
   useEffect(() => {
     repository.loadClasses(actor.schoolId).catch((e) => setFailure(e.message));
   }, [actor.schoolId]);
+
+  useEffect(() => {
+    let active = true;
+
+    repository.loadAssessmentConfig(actor.schoolId)
+      .then((result) => {
+        if (!active) return;
+
+        const scheme = result?.data?.assessment_scheme || [];
+
+        if (!scheme.length) {
+          setFailure('Assessment types are not configured for this school. Contact an administrator.');
+          return;
+        }
+
+        setAssessmentScheme([...scheme].sort((a, b) => a.order - b.order));
+        setConfigLoaded(true);
+      })
+      .catch((error) => {
+        if (active) setFailure(error.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [actor.schoolId]);
+
+  useEffect(() => {
+    if (!configLoaded || isEdit || !assessmentScheme.length) return;
+
+    setForm((current) => ({
+      ...current,
+      assessment_type: current.assessment_type || assessmentScheme[0].key,
+    }));
+  }, [configLoaded, isEdit, assessmentScheme]);
 
   useEffect(() => {
     if (!classId || !termId) return;
@@ -135,7 +171,7 @@ export default function AssessmentForm() {
       due_date: form.due_date || null,
     };
 
-    const found = validateAssessment(candidate, { siblings });
+    const found = validateAssessment(candidate, { siblings, assessmentTypes: assessmentScheme.map((item) => item.key), });
     if (!termId) found.push({ field: 'term_id', message: 'Choose a term' });
     if (found.length) {
       setErrors(Object.fromEntries(found.map((f) => [f.field, f.message])));
@@ -231,12 +267,13 @@ export default function AssessmentForm() {
             />
           </Field>
 
-          <Field label="Checkpoint" htmlFor="type" error={errors.assessment_type}>
-            <Select
-              id="type"
-              value={form.assessment_type}
-              onChange={set('assessment_type')}
-              options={ASSESSMENT_TYPES}
+          <Field label="Assessment type" htmlFor="type" error={errors.assessment_type}>
+            <Select id="type" value={form.assessment_type} onChange={set('assessment_type')}
+              options={assessmentScheme.map((item) => ({
+                value: item.key,
+                label: item.name,
+              }))}
+              placeholder="Choose assessment type" disabled={!configLoaded || !assessmentScheme.length}
             />
           </Field>
 
@@ -309,7 +346,7 @@ export default function AssessmentForm() {
             />
           </Field>
 
-          <button className="btn" type="submit" disabled={saving || !classId || !termId}>
+          <button className="btn" type="submit" disabled={saving || !configLoaded || !assessmentScheme.length || !classId || !termId}>
             {saving ? 'Saving' : isEdit ? 'Save changes' : 'Add assessment'}
           </button>
         </div>

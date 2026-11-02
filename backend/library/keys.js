@@ -17,6 +17,7 @@ export const sk = {
   klass: (id) => `CLASS#${id}`,
   classPrefix: () => 'CLASS#',
   assessment: (id) => `ASSESSMENT#${id}`,
+  assessmentConfig: () => 'ASSESSMENTCONFIG#SCHOOL',
   // One paper number per class + term + subject + checkpoint type. Claimed in the
   // same transaction as the assessment, so two papers can never share a number.
   paperSlot: (termId, classId, subject, assessmentType, paperNo) =>

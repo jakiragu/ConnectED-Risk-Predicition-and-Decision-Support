@@ -20,6 +20,11 @@ import {
   TOTAL_WEIGHT,
   SUBJECTS,
 } from '../../library/assessment.js';
+import {
+  validateAssessmentScheme,
+  normalizeAssessmentScheme,
+} from '../../library/assessmentConfig.js';
+import * as assessmentConfig from '../../library/assessmentConfigRepo.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import * as assessments from '../../library/assessmentRepo.js';
@@ -58,6 +63,10 @@ export async function handler(event) {
       return getClassRoster(actor, args);
     case 'listTerms':
       return listTerms(actor, args);
+    case 'getAssessmentConfig':
+      return getAssessmentConfig(actor, args);
+    case 'saveAssessmentConfig':
+      return saveAssessmentConfig(actor, input);
     default:
       throw notFound(`No handler for ${event.info.fieldName}`);
   }
@@ -70,6 +79,16 @@ const UNLOCK_PUBLISHED =
   'Published results include this assessment, so it cannot be unlocked. Correcting published results is not available yet.';
 const isPublished = (a) => Boolean(a.published_in && [...a.published_in].length);
 const paperTaken = (a) => `${a.subject} ${a.assessment_type} already has a paper ${a.paper_no}`;
+
+async function configuredAssessmentTypes(schoolId) {
+  const config = await assessmentConfig.get(schoolId);
+
+  if (!config || !Array.isArray(config.assessment_scheme) || !config.assessment_scheme.length) {
+    throw validation('Assessment types have not been configured for this school');
+  }
+
+  return config.assessment_scheme.map((item) => item.key);
+}
 
 const decorate = (a, rosterSize) => ({
   ...a,
@@ -91,11 +110,14 @@ function assertCanSee(actor, a) {
 async function createAssessment(actor, input) {
   assertTenant(actor, input.school_id);
   assertSubjectWrite(actor, input.class_id, input.subject);
+
+  const assessmentTypes = await configuredAssessmentTypes(input.school_id);
+
   if (await assessments.termLocked(input.school_id, input.term_id, input.class_id)) throw locked(TERM_LOCKED);
 
   const candidate = { ...input, assessment_id: input.assessment_id || ulid() };
   const siblings = await assessments.listAllLive(input.school_id, input.class_id, input.term_id);
-  const errors = validateAssessment(candidate, { siblings });
+  const errors = validateAssessment(candidate, { siblings, assessmentTypes });
   if (errors.length) throw validation(errors[0].message, errors[0].field);
 
   const { item, created, problem } = await assessments.create(input.school_id, candidate, actor);
@@ -110,6 +132,8 @@ async function createAssessment(actor, input) {
 async function updateAssessment(actor, input) {
   assertTenant(actor, input.school_id);
 
+  const assessmentTypes = await configuredAssessmentTypes(input.school_id);
+
   const existing = await assessments.get(input.school_id, input.assessment_id);
   if (!existing || existing._deleted) throw notFound('Assessment not found');
   assertCanSee(actor, existing);
@@ -123,6 +147,7 @@ async function updateAssessment(actor, input) {
     siblings,
     original: existing,
     scoreCount: existing.score_count || 0,
+    assessmentTypes,
   });
   if (errors.length) throw validation(errors[0].message, errors[0].field);
 
@@ -246,6 +271,18 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
   const existing = await assessments.get(school_id, assessment_id);
   if (!existing) throw notFound('Assessment not found');
   if (!existing._deleted) return decorateOne(existing);
+
+  // Confirm the assessment type is still part of the school's configured scheme.
+  const config = await assessmentConfig.get(school_id);
+  const configuredTypes = config.assessment_types.map((type) => type.key);
+
+  if (!configuredTypes.includes(existing.assessment_type)) {
+    throw validation(
+      `Cannot restore this assessment because "${existing.assessment_type}" is no longer configured for this school.`,
+      'assessment_type'
+    );
+  }
+
   if (await assessments.termLocked(school_id, existing.term_id, existing.class_id)) throw locked(TERM_LOCKED);
 
   const siblings = await assessments.listAllLive(school_id, existing.class_id, existing.term_id);
@@ -319,6 +356,61 @@ async function listMyClasses(actor, { school_id }) {
 async function listTerms(actor, { school_id }) {
   assertTenant(actor, school_id);
   return platform.listTerms(school_id);
+}
+
+async function getAssessmentConfig(actor, { school_id }) {
+  assertTenant(actor, school_id);
+  assertAdmin(actor);
+
+  const config = await assessmentConfig.get(school_id);
+
+  if (!config) {
+    throw notFound('Assessment configuration has not been set up for this school');
+  }
+
+  return {
+    school_id: config.school_id,
+    assessment_scheme: config.assessment_scheme,
+    updated_at: config.updated_at,
+    updated_by: config.updated_by,
+    _version: config._version,
+  };
+}
+
+async function saveAssessmentConfig(actor, input) {
+  assertTenant(actor, input.school_id);
+  assertAdmin(actor);
+
+  const errors = validateAssessmentScheme(input.assessment_scheme);
+
+  if (errors.length) {
+    throw validation(errors[0], 'assessment_scheme');
+  }
+
+  const scheme = normalizeAssessmentScheme(input.assessment_scheme);
+
+  try {
+    const saved = await assessmentConfig.save(
+      input.school_id,
+      scheme,
+      input._version,
+      actor
+    );
+
+    return {
+      school_id: saved.school_id,
+      assessment_scheme: saved.assessment_scheme,
+      updated_at: saved.updated_at,
+      updated_by: saved.updated_by,
+      _version: saved._version,
+    };
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      throw conflict('The assessment configuration changed. Reload and try again.');
+    }
+
+    throw error;
+  }
 }
 
 async function getClassRoster(actor, { school_id, class_id }) {
