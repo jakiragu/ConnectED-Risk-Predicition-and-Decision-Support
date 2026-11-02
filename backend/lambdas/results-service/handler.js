@@ -528,7 +528,7 @@ async function requestReportCardDownload(actor, input) {
     new GetObjectCommand({
       Bucket: card.s3_bucket || process.env.REPORT_BUCKET,
       Key: card.s3_key,
-      ResponseContentDisposition: `attachment; filename="${fileName}"`,
+      ResponseContentDisposition: `${input.inline ? 'inline' : 'attachment'}; filename="${fileName}"`,
       ResponseContentType: 'application/pdf',
     }),
     { expiresIn: DOWNLOAD_SECONDS }
@@ -551,6 +551,6 @@ async function requestReportCardDownload(actor, input) {
       requested_at: at.toISOString(),
     },
   }));
-  log({ op: 'report-card-download', ...scope, student_id: input.student_id, by: actor.sub });
+  log({ op: input.inline ? 'report-card-view' : 'report-card-download', ...scope, student_id: input.student_id, by: actor.sub });
   return { url, file_name: fileName, expires_at: new Date(at.getTime() + DOWNLOAD_SECONDS * 1000).toISOString() };
 }

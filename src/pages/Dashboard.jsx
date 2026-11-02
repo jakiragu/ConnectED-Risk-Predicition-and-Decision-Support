@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { FREQUENCY_LABEL } from '@gradebook/domain/decision';
 import { targetText } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -24,9 +24,14 @@ export default function Dashboard() {
   const { online } = useSync();
   const [view, setView] = useState({ data: null, savedAt: null, fromDevice: false });
   const [loading, setLoading] = useState(true);
+  const [riskQuery, setRiskQuery] = useState('');
+  const [expandedStudent, setExpandedStudent] = useState(null);
   const [query, setQuery] = useState('');
+  const [riskPage, setRiskPage] = useState(1);
+  const RISK_PAGE_SIZE = 10;
   const classes = useLive(() => db().classes.toArray(), [], []);
   const students = useLive(() => db().students.toArray(), [], []);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let live = true;
@@ -57,6 +62,35 @@ export default function Dashboard() {
     for (const i of d?.ongoing_interventions || []) groups.set(i.frequency, [...(groups.get(i.frequency) || []), i]);
     return ['DAILY', 'WEEKLY', 'MONTHLY', 'ONCE'].filter((f) => groups.has(f)).map((f) => [f, groups.get(f)]);
   }, [d]);
+
+  const flaggedStudents = useMemo(() => {
+    const q = riskQuery.trim().toLowerCase();
+
+    return (d?.at_risk_students || []).filter((c) => {
+      const s = c.student;
+      const searchable = [
+        s.first_name,
+        s.last_name,
+        s.admission_no,
+        s.class_name,
+      ].join(' ').toLowerCase();
+
+      return searchable.includes(q);
+    });
+  }, [d, riskQuery]);
+  const riskPageCount = Math.ceil(flaggedStudents.length / RISK_PAGE_SIZE);
+  const paginatedStudents = flaggedStudents.slice(
+    (riskPage - 1) * RISK_PAGE_SIZE,
+    riskPage * RISK_PAGE_SIZE
+  );
+
+  useEffect(() => {
+    setRiskPage((page) => Math.min(page, Math.max(1, riskPageCount)));
+  }, [riskPageCount]);
+
+  useEffect(() => {
+    setRiskPage(1);
+  }, [riskQuery]);
 
   return (
     <div className="stack">
@@ -99,7 +133,7 @@ export default function Dashboard() {
         <>
           {!isAdmin && (
             <section className="stack">
-              <h2>Ongoing interventions</h2>
+              <h2>Logging ongoing interventions</h2>
               {byFrequency.length === 0 && <div className="hint">No interventions under way. Log one from a student&apos;s risk profile.</div>}
               {byFrequency.map(([f, items]) => (
                 <div key={f}>
@@ -118,33 +152,176 @@ export default function Dashboard() {
           )}
 
           <section className="stack">
-            <h2>Students flagged at risk</h2>
-            {d.at_risk_students.length === 0 && <div className="hint">The model flags none of your students at their latest checkpoint.</div>}
-            <div className="cards">
-              {d.at_risk_students.map((c) => (
-                <div key={c.student.student_id} className="card student-card">
-                  <Link to={`/students/${c.student.student_id}/risk`} state={{ from: '/dashboard' }} className="who">
-                    {c.student.first_name} {c.student.last_name}, {c.student.admission_no}, {c.student.class_name}
-                  </Link>
-                  <div className="row">
-                    <span>Estimated risk <b className="risk">{pct(c.latest.probability)}</b> <span className="hint">at {c.latest.label}</span></span>
-                    <span className="grow" />
-                    <Sparkline points={c.trend} />
-                  </div>
-                  <div>
-                    {c.targets.length ? (
-                      <>
-                        {c.partial ? 'Your subject’s target: ' : 'Targets: '}
-                        {c.targets.slice(0, 2).map((t) => <span key={t.column} className="chip target">{targetText(t)}</span>)}
-                        {c.targets.length > 2 && <span className="hint"> and {c.targets.length - 2} more</span>}
-                      </>
-                    ) : <span className="hint">{c.latest.targets_status === 'MAINTAIN' ? 'Keep current results' : 'No target for your subjects'}</span>}
-                  </div>
-                  <div>Current intervention: {c.interventions.length ? <b>{c.interventions.join('; ')}</b> : <span className="hint">none yet</span>}</div>
-                  <div className="actions"><Link to={`/students/${c.student.student_id}/interventions`} state={{ from: '/dashboard' }}>Log or update interventions</Link></div>
-                </div>
-              ))}
+            <div className="row">
+              <h2 className="grow">Students flagged at risk</h2>
+              <span className="hint">
+                {flaggedStudents.length} of {d.at_risk_students.length} students
+              </span>
             </div>
+
+            <input type="search" aria-label="Search flagged students" placeholder="Search by student name, admission number or class" value={riskQuery}
+              onChange={(e) => {
+                setRiskQuery(e.target.value);
+                setExpandedStudent(null);
+              }}
+            />
+
+            {d.at_risk_students.length === 0 ? (
+              <div className="hint">
+                The model flags none of your students at their latest checkpoint.
+              </div>
+            ) : flaggedStudents.length === 0 ? (
+              <div className="hint">No flagged students match your search.</div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student</th>
+                      <th>Class</th>
+                      <th>Estimated risk</th>
+                      <th>Checkpoint</th>
+                      <th>Trend</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {paginatedStudents.map((c) => {
+                      const id = c.student.student_id;
+                      const isOpen = expandedStudent === id;
+
+                      return (
+                        <>
+                          <tr key={id} className={`risk-student-row${isOpen ? ' selected' : ''}`}
+                            onClick={() => setExpandedStudent(isOpen ? null : id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setExpandedStudent(isOpen ? null : id);
+                              }
+                            }}
+                            tabIndex={0} aria-expanded={isOpen}
+                          >
+                            <td>
+                              <b>{c.student.first_name} {c.student.last_name}</b>
+                              <div className="hint">{c.student.admission_no}</div>
+                            </td>
+                            <td>{c.student.class_name}</td>
+                            <td>
+                              <b className="risk">{pct(c.latest.probability)}</b>
+                            </td>
+                            <td>{c.latest.label}</td>
+                            <td><Sparkline points={c.trend} /></td>
+                          </tr>
+
+                          {isOpen && (
+                            <tr key={`${id}-details`} className="risk-detail-row">
+                              <td colSpan={5}>
+                                <div className="risk-student-details">
+                                  <div className="stack">
+                                    <h3 className="sub">Targets</h3>
+
+                                    {c.targets.length > 0 ? (
+                                      <>
+                                        {c.partial && (
+                                          <span className="hint">
+                                            Showing targets for the subjects you teach.
+                                          </span>
+                                        )}
+                                        <div className="chips">
+                                          {c.targets.map((t) => (
+                                            <span key={t.column} className="chip target">
+                                              {targetText(t)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <span className="hint">
+                                        {c.latest.targets_status === 'MAINTAIN'
+                                          ? 'Keep current results.'
+                                          : 'No targets available for your subjects.'}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="stack">
+                                    <h3 className="sub">Ongoing interventions</h3>
+
+                                    {c.interventions.length > 0 ? (
+                                      <ul className="plain">
+                                        {c.interventions.map((method, i) => (
+                                          <li key={`${method}-${i}`}>{method}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <span className="hint">
+                                        No ongoing interventions recorded.
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="actions">
+                                    <button
+                                      type="button"
+                                      className="btn secondary"
+                                      onClick={() => navigate(
+                                        `/students/${id}/risk`,
+                                        { state: { from: '/dashboard' } }
+                                      )}
+                                    >
+                                      View risk profile
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      className="btn"
+                                      onClick={() => navigate(
+                                        `/students/${id}/interventions`,
+                                        { state: { from: '/dashboard' } }
+                                      )}
+                                    >
+                                      Log or update interventions
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {riskPageCount > 1 && (
+                  <div className="row wrap between risk-pagination">
+                    <span className="hint">
+                      Showing {(riskPage - 1) * RISK_PAGE_SIZE + 1}–
+                      {Math.min(riskPage * RISK_PAGE_SIZE, flaggedStudents.length)}
+                      {' '}of {flaggedStudents.length} students
+                    </span>
+
+                    <div className="row">
+                      <button type="button" className="btn secondary" disabled={riskPage === 1}
+                        onClick={() => setRiskPage((page) => page - 1)}
+                      >
+                        Previous
+                      </button>
+
+                      <span className="hint">
+                        Page {riskPage} of {riskPageCount}
+                      </span>
+
+                      <button type="button" className="btn secondary" disabled={riskPage === riskPageCount}
+                        onClick={() => setRiskPage((page) => page + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           <section className="stack">

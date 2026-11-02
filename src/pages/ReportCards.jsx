@@ -75,6 +75,42 @@ export default function ReportCards() {
     save(link.url, link.file_name);
   }
 
+  async function view(card) {
+    const tab = window.open('about:blank', '_blank');
+
+    if (!tab) {
+      setError('Please allow pop-ups to view report cards.');
+      return;
+    }
+
+    tab.opener = null;
+    setBusy(`view-${card.student_id}`);
+    setError(null);
+
+    try {
+      const { requestReportCardDownload: link } = await gql(
+        REQUEST_REPORT_CARD_DOWNLOAD,
+        {
+          input: {
+            school_id: actor.schoolId,
+            class_id: classId,
+            term_id: termId,
+            checkpoint,
+            student_id: card.student_id,
+            inline: true,
+          },
+        }
+      );
+
+      tab.location.replace(link.url);
+    } catch (e) {
+      tab.close();
+      setError(e.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function one(card) {
     setBusy(card.student_id);
     setError(null);
@@ -149,6 +185,12 @@ export default function ReportCards() {
                   <td>{c.first_name} {c.last_name}{c.student_status !== 'ACTIVE' && <span className="hint"> (deactivated)</span>}</td>
                   <td>{c.available ? (c.kind === 'OFFICIAL' ? 'Official' : 'Provisional') : <span className="hint">Being produced</span>}</td>
                   <td className="actions">
+                    <button type="button" className="btn link" title="View report card"
+                      aria-label={`View report card for ${c.first_name} ${c.last_name}`} disabled={!c.available || busy !== null}
+                      onClick={() => view(c)}
+                    >
+                      <ActionIcon name={busy === `view-${c.student_id}` ? 'loader' : 'eye'} />
+                    </button>
                     <button type="button" className="btn link" disabled={!c.available || busy !== null}
                       aria-label={
                         busy === c.student_id

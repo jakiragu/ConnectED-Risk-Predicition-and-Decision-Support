@@ -30,9 +30,23 @@ a { color: var(--ink); }
 
 /* ------------------------------------------------------------------ shell */
 
-.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+.shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
 
-.sidebar { background: var(--bg); border-right: 1px solid var(--line-soft); padding: var(--space-5) 0; }
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-self: start;
+  background: var(--bg);
+  border-right: 1px solid var(--line-soft);
+  padding: var(--space-5) 0;
+  scrollbar-width: none;
+}
+.sidebar::-webkit-scrollbar {
+  display: none;
+}
 .brand { padding: 0 var(--space-5) var(--space-6); }
 .brand-name { font-family: 'Goldman', sans-serif; font-size: 2.5rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
 .sidebar .brand-name { font-size: 2.0rem}
@@ -229,9 +243,9 @@ td.actions .btn.danger {
 .choice b { font-size: var(--t-lg); }
 
 @media (max-width: 880px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--line-soft); }
-  .nav { flex-direction: row; overflow-x: auto; }
+  .shell { grid-template-columns: 1fr; align-content: start;}
+  .sidebar { border-right: none; border-bottom: 1px solid var(--line-soft); padding-bottom: 0; height: auto; min-height: 0; }
+  .nav { flex-direction: row; overflow-x: auto; scrollbar-width: none;}
   .nav a { border: none; white-space: nowrap; }
 }
 /* ---- ISSUE-06: results, checkpoint weights ---- */
@@ -380,10 +394,10 @@ tbody tr.selected { background: var(--info-soft); }
 .empty p { margin: 0; color: var(--muted); max-width: 36rem; }
 
 /* ---- info: a small "i" that opens a short explanation ---- */
-details.info { display: inline-block; position: relative; }
+details.info { display: inline-block; position: relative;}
 details.info > summary { list-style: none; cursor: pointer; display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; border: 1px solid var(--line-soft); border-radius: 50%; font-size: var(--t-xs); font-weight: 700; color: var(--ink); background: var(--surface); }
 details.info > summary::-webkit-details-marker { display: none; }
-details.info[open] > div { position: absolute; z-index: 5; top: 1.6rem; left: 0; width: min(22rem, 80vw); padding: var(--space-3); background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); box-shadow: 0 6px 20px rgb(6 59 67 / 0.12); font-size: var(--t-sm); font-weight: 400; color: var(--body); white-space: normal; text-align: left; }
+details.info[open] > div { position: absolute; z-index: 5; top: 1.6rem; right: 0; width: min(22rem, 80vw); padding: var(--space-3); background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); box-shadow: 0 6px 20px rgb(6 59 67 / 0.12); font-size: var(--t-sm); font-weight: 400; color: var(--body); white-space: normal; text-align: left; }
 details.more > summary { cursor: pointer; color: var(--ink); font-weight: 600; font-size: var(--t-sm); }
 details.more[open] > summary { margin-bottom: var(--space-2); }
 
@@ -423,6 +437,12 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .influence .lane i.missing { opacity: 0.45; }
 .influence.one-sided .lane::before { left: 0; }
 .influence.one-sided .lane i { left: 0; background: var(--ink); }
+.influence-row .val.raises {
+  color: var(--risk);
+}
+.influence-row .val.lowers {
+  color: var(--good);
+}
 
 /* ---- targets table ---- */
 .targets td.num, .targets th.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -432,6 +452,21 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .panel { display: grid; gap: var(--space-4); }
 .panel-head { display: flex; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
 .panel-head h2 { margin-right: auto; }
+
+.panel-head.risk-explanation-head {
+  justify-content: space-between;
+}
+.panel-head.risk-explanation-head h2 {
+  margin-right: 0;
+}
+.panel-head.risk-explanation-head .riskbar b {
+ text-align: center;
+}
+.panel-head.risk-explanation-head .risk-explanation-head-mid {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 
 /* ---- dashboard, profile, intervention form ---- */
 .dash-top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); gap: var(--space-4); align-items: start; }
@@ -453,6 +488,31 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .intervention.removed b { text-decoration: line-through; color: var(--muted); }
 .suggestions { position: sticky; top: var(--space-4); }
 .suggestion { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+
+/* ---- expandable risk table ---- */
+.risk-student-row {
+  cursor: pointer;
+}
+.risk-student-row:hover {
+  background: var(--surface-alt);
+}
+.risk-student-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.risk-detail-row > td {
+  padding: var(--space-4);
+  background: var(--surface-alt);
+}
+.risk-student-details {
+  display: grid;
+  gap: var(--space-4);
+}
+.risk-detail-row .actions {
+  margin-top: var(--space-2);
+  display: flex;
+  gap: var(--space-2);
+}
 
 /* ---- line chart ---- */
 /* Drawn at the container's real width, so these sizes are what the reader sees. */

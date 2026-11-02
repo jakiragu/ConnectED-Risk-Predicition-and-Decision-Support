@@ -221,7 +221,10 @@ export function InfluenceChart({ items, limit = 5 }) {
             <span className="lane" aria-hidden="true">
               {i.direction !== 'NONE' && <i className={`${side}${i.missing ? ' missing' : ''}`} style={{ width: `${width}%` }} />}
             </span>
-            <span className="val">{Math.round(i.share * 100)}%</span>
+            <span className={`val ${side}`}>
+              {i.direction === 'RAISES' ? '+' : i.direction === 'LOWERS' ? '−' : ''}
+              {Math.round(i.share * 100)}%
+            </span>
           </div>
         );
       })}

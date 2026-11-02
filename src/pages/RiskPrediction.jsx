@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { parseColumn } from '@gradebook/domain/explanations';
 import { gql } from '../api/graphql.js';
@@ -92,6 +92,8 @@ export default function RiskPrediction() {
   const point = POINTS.find((p) => p.value === params.get('point')) || POINTS[0];
   const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classParam, point: point.value, ...next }).filter(([, v]) => v)));
   const shown = useMemo(() => (all ? mine : mine.filter((c) => c.class_id === classParam)), [all, mine, classParam]);
+  const detailSectionRef = useRef(null);
+  const loadRequest = useRef(0);
 
   const [rows, setRows] = useState(null);
   const [year, setYear] = useState(null);
@@ -118,6 +120,7 @@ export default function RiskPrediction() {
 
   // Every class shown: who is in it, what the model had, and what it estimated.
   const load = useCallback(async () => {
+    const requestId = ++loadRequest.current;
     if (!shown.length) return;
     const per = await Promise.all(shown.map(async (c) => {
       const scope = { school_id: actor.schoolId, class_id: c.class_id, prediction_point: point.value };
@@ -127,11 +130,13 @@ export default function RiskPrediction() {
       const byStudent = new Map(p.map((x) => [x.student_id, x]));
       return { year: r.academic_year, rows: r.students.map((s) => ({ ...s, class_name: c.name, class_id: c.class_id, p: byStudent.get(s.student_id) })) };
     }));
+    if (requestId !== loadRequest.current) return;
     setYear(per[0]?.year ?? null);
     setRows(per.flatMap((x) => x.rows).sort((a, b) => (b.p?.probability ?? -1) - (a.p?.probability ?? -1)));
     const { getRiskImportance } = await gql(GET_RISK_IMPORTANCE, {
       school_id: actor.schoolId, prediction_point: point.value, ...(all ? {} : { class_id: classParam }),
     }).catch(() => ({ getRiskImportance: null }));
+    if (requestId !== loadRequest.current) return;
     setImportance(getRiskImportance);
   }, [actor.schoolId, shown, point, all, classParam]);
 
@@ -157,6 +162,15 @@ export default function RiskPrediction() {
     }, 2000);
     return () => clearTimeout(t);
   }, [run, loadRun, load, showToast]);
+
+  useEffect(() => {
+    if (!detail) return;
+
+    detailSectionRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }, [detail?.row?.student_id, detail?.explanation]);
 
   async function rerun() {
     setError(null);
@@ -266,7 +280,6 @@ export default function RiskPrediction() {
                         : <span className="hint">None</span>}
                     </td>
                     <td className="actions">
-                      <td className="actions">
                       {p && (
                         <button type="button" className="btn link" aria-label={`View prediction details for ${r.first_name} ${r.last_name}`} title="Details"
                           onClick={() => openDetail(r)}
@@ -281,7 +294,6 @@ export default function RiskPrediction() {
                         <ActionIcon name="users" />
                       </Link>
                     </td>
-                    </td>
                   </tr>
                 );
               })}
@@ -291,17 +303,19 @@ export default function RiskPrediction() {
       )}
 
       {detail && (
-        detail.explanation ? (
-          <>
-            <RiskExplanation explanation={detail.explanation} name={`${detail.row.first_name} ${detail.row.last_name}`} onClose={() => setDetail(null)} />
-            {detail.features && (
-              <details className="more card">
-                <summary>Data the model used</summary>
-                <DataUsed features={detail.features} />
-              </details>
-            )}
-          </>
-        ) : <div className="hint">Loading…</div>
+        <div ref={detailSectionRef} id="risk-details">
+          {detail.explanation ? (
+            <>
+              <RiskExplanation explanation={detail.explanation} name={`${detail.row.first_name} ${detail.row.last_name}`} onClose={() => setDetail(null)} />
+              {detail.features && (
+                <details className="more card">
+                  <summary>Data the model used</summary>
+                  <DataUsed features={detail.features} />
+                </details>
+              )}
+            </>
+          ) : <div className="hint">Loading…</div>}
+        </div>
       )}
 
       {importance && (importance.observed?.groups?.length > 0 || importance.model?.groups?.length > 0) && (

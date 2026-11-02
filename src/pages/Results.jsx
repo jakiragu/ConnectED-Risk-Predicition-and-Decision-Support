@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CHECKPOINTS, CHECKPOINT_LABEL, SEVERITY } from '@gradebook/domain/results';
 import { gql } from '../api/graphql.js';
@@ -322,6 +322,7 @@ export default function Results() {
   const [params, setParams] = useSearchParams();
   const reviewer = actor.groups.includes('Admin');
   const { terms, defaultTermId } = useTerms(actor.schoolId);
+  const resultsSectionRef = useRef(null);
 
   const termId = params.get('term') || defaultTermId;
   const checkpoint = CHECKPOINTS.includes(params.get('cp')) ? params.get('cp') : 'OPENER';
@@ -385,6 +386,15 @@ export default function Results() {
     const t = setInterval(() => load().catch(() => {}), POLL_MS);
     return () => clearInterval(t);
   }, [set?.report_cards_status, load]);
+
+  useEffect(() => {
+    if (!reviewer || !classId) return;
+
+    resultsSectionRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }, [classId, reviewer]);
 
   async function act(mutation, input, done) {
     setBusy(true);
@@ -455,7 +465,7 @@ export default function Results() {
         />
       )}
 
-      <div className="page-head">
+      <div ref={resultsSectionRef} className="page-head" id="class-results">
         <h2>{className ? `${className}: ${CHECKPOINT_LABEL[checkpoint]}` : 'Class results'}</h2>
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v, subject: '' })}
           options={sortedClasses.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Choose a class" />

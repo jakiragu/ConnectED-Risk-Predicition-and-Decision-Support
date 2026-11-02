@@ -816,6 +816,7 @@ input ReportCardDownloadInput {
   term_id: ID!
   checkpoint: Checkpoint!
   student_id: ID!
+  inline: Boolean
 }
 
 input CreateAssessmentInput {

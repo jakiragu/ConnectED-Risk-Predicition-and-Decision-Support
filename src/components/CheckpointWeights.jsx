@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { gql } from '../api/graphql.js';
 import { GET_GRADE_RULE, SET_CHECKPOINT_WEIGHTS } from '../api/operations.js';
+import { Info } from './ui.jsx';
 
 const FIELDS = [
   { key: 'opener', label: 'Opener' },
@@ -89,23 +90,11 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
       <div className="weights-head">
         <h2>Checkpoint weights</h2>
 
-        <div className="weights-help">
-          {showWeightHelp ? (
-            <>
-              <span className="hint">
-                How much each exam counts towards the term result. They must total 100%.
-              </span>
-              <button type="button" className="weights-help-toggle" aria-label="Close checkpoint weight information" onClick={() => setShowWeightHelp(false)}>
-                ×
-              </button>
-            </>
-          ) : (
-            <button type="button" className="weights-help-toggle" aria-label="Show more checkpoint weight information" onClick={() => setShowWeightHelp(true)}
-            >
-              ?
-            </button>
-          )}
-        </div>
+        <Info label="About checkpoint weights">
+          These weights determine how much the Opener, Mid-term and End of term
+          exams contribute to the overall term result. The three weights must
+          add up to 100%.
+        </Info>
       </div>
       <div className="weights-row">
         {FIELDS.map((f) => (
