@@ -17,13 +17,18 @@
     "api": "node local/server.js",
     "web": "npm run dev --workspace @connected/web",
     "build:web": "npm run build --workspace @connected/web",
-    "test": "node --test tests/*.test.js",
-    "setup": "npm run db:infra && npm run aws:setup && npm run db:seed && npm run db:verify",
+    "setup": "npm run db:infra && node -e \"setTimeout(() => {}, 3000)\" && npm run aws:setup && npm run db:seed && npm run db:verify",
     "features:check": "node local/check-feature-contract.js",
     "features:export": "node local/export-features.js",
     "history:backfill": "node local/backfill-history.js",
     "model:package": "python ml/package_xgboost.py",
-    "model:publish": "node local/publish-model.js"
+    "model:publish": "node local/publish-model.js",
+    "test": "node --test tests/unit/*.test.js",
+    "test:unit": "node --test tests/unit/*.test.js",
+    "test:integration": "node --test --test-concurrency=1 tests/integration/*.test.js",
+    "test:evidence": "node --test --test-concurrency=1 tests/unit/*.test.js tests/integration/*.test.js",
+    "test:report": "node tests/report.js",
+    "test:env": "node tests/env.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.658.0",
