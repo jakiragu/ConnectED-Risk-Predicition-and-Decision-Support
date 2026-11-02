@@ -44,7 +44,13 @@ export default function AssessmentForm() {
   const classes = useLive(() => db().classes.toArray(), [], []);
   const isAdmin = actor.groups.includes('Admin');
   // Teachers create papers only for the subjects they teach in the chosen class.
-  const allowedSubjects = isAdmin ? SUBJECTS : classes.find((c) => c.class_id === classId)?.my_subjects || [];
+  const isClassTeacher = classes.find(
+    (c) => c.class_id === classId
+  )?.is_class_teacher;
+
+  const allowedSubjects = isAdmin || isClassTeacher
+    ? SUBJECTS
+    : classes.find((c) => c.class_id === classId)?.my_subjects || [];
   const siblings = useLive(
     () => (classId && termId ? db().assessments.where('[class_id+term_id]').equals([classId, termId]).toArray() : []),
     [classId, termId],

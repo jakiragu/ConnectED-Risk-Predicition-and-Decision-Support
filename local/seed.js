@@ -68,7 +68,7 @@ items.push({
   SK: 'ASSESSMENTCONFIG#SCHOOL',
   entity: 'AssessmentConfig',
   school_id: SCHOOL,
-  assessment_types: [
+  assessment_scheme: [
     {
       key: 'MIDTERM',
       name: 'Midterm',

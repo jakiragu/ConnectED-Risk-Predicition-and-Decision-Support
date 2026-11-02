@@ -64,7 +64,7 @@ export const subjectsITeach = (actor, classId) =>
   access(actor).assignments.filter((a) => a.class_id === classId).map((a) => a.subject);
 
 export const canWriteSubject = (actor, classId, subject) =>
-  isAdmin(actor) || access(actor).assignments.some((a) => a.class_id === classId && a.subject === subject);
+  isAdmin(actor) ||isClassTeacherOf(actor, classId) || access(actor).assignments.some((a) => a.class_id === classId && a.subject === subject);
 
 export function assertSubjectWrite(actor, classId, subject) {
   if (!canWriteSubject(actor, classId, subject)) {

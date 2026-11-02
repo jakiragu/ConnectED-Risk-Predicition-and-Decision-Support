@@ -127,7 +127,7 @@ export default function Assessments() {
   const klass = classes.find((c) => c.class_id === classId);
   const className = klass?.name;
   // Papers of subjects this user teaches here can be edited and marked; the rest are view-only.
-  const canWrite = (a) => isAdmin || (klass?.my_subjects || []).includes(a.subject);
+  const canWrite = (a) => isAdmin || klass?.is_class_teacher || (klass?.my_subjects || []).includes(a.subject);
 
   return (
     <>

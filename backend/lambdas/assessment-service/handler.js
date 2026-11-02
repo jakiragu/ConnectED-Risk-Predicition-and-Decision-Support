@@ -274,7 +274,11 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
 
   // Confirm the assessment type is still part of the school's configured scheme.
   const config = await assessmentConfig.get(school_id);
-  const configuredTypes = config.assessment_types.map((type) => type.key);
+  const configuredTypes = config.assessment_scheme.map((type) => type.key);
+
+  if (!config || !Array.isArray(config.assessment_scheme)) {
+    throw validation('Assessment types have not been configured for this school');
+  }
 
   if (!configuredTypes.includes(existing.assessment_type)) {
     throw validation(
@@ -360,7 +364,6 @@ async function listTerms(actor, { school_id }) {
 
 async function getAssessmentConfig(actor, { school_id }) {
   assertTenant(actor, school_id);
-  assertAdmin(actor);
 
   const config = await assessmentConfig.get(school_id);
 
