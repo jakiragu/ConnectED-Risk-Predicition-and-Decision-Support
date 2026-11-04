@@ -150,7 +150,7 @@ export default function RiskExplanation({ explanation: e, name, onClose }) {
       </div>
 
       {missingLowered && (
-        <Notice tone="warn">Some results are missing. The model reads a missing result as lower risk, so this estimate may be too low.</Notice>
+        <Notice tone="warn">Some results are missing. Each was estimated from the student's own earlier or other results, so treat this estimate with more caution.</Notice>
       )}
 
       {e.explained ? (

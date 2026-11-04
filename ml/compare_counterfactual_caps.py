@@ -20,10 +20,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xgboost
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend" / "lambdas" / "risk-scorer"))
 import counterfactuals as cf  # noqa: E402
+import linear_model  # noqa: E402
 import counterfactual_stats  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -45,10 +45,8 @@ train = counterfactual_stats.training_ids(snapshots)
 rules = cf.settings()
 
 
-def booster(point):
-    b = xgboost.Booster()
-    b.load_model(str(package / manifest["points"][point]["file"]))
-    return b
+def model(point):
+    return linear_model.LogisticModel(json.loads((package / manifest["points"][point]["file"]).read_text()))
 
 
 print(f"{'point':6} {'flagged':>7} {'maintain':>8} | {'static: DiCE found':>19} {'fallback':>8} | {'data: DiCE found':>17} {'fallback':>8} | s/student")
@@ -56,14 +54,14 @@ for point in counterfactual_stats.POINTS:
     spec = manifest["points"][point]
     features = spec["features"]
     df = snapshots[point][~snapshots[point]["student_id"].isin(train)]
-    X = df[features].to_numpy(dtype=np.float32)
-    p = booster(point).predict(xgboost.DMatrix(X, feature_names=features, missing=np.nan))
+    X = df[features].to_numpy(dtype=np.float64)
+    p = model(point).predict_proba(X)
     flagged = np.where(p >= spec["threshold"])[0][: args.limit]
     nxt = cf.NEXT[point]
     if nxt == cf.FINAL:
         evaluation = cf.PassMarkRule(args.pass_mark, args.missing_score_policy)
     else:
-        evaluation = cf.ModelEvaluation(nxt, booster(nxt), manifest["points"][nxt]["features"], float(manifest["points"][nxt]["threshold"]))
+        evaluation = cf.ModelEvaluation(nxt, model(nxt), manifest["points"][nxt]["features"], float(manifest["points"][nxt]["threshold"]))
     counts = {"static": {"FOUND": 0, "FALLBACK": 0, "MAINTAIN": 0, "NONE": 0}, "data": {"FOUND": 0, "FALLBACK": 0, "MAINTAIN": 0, "NONE": 0}}
     start = time.time()
     for i in flagged:

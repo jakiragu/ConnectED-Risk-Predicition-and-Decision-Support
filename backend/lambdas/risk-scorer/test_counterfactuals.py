@@ -1,6 +1,6 @@
 """
 Tests for the counterfactual pipeline (counterfactuals.py and the scorer's
-counterfactuals action). Self-contained: small XGBoost models are fitted on
+counterfactuals action). Self-contained: small logistic regressions are fitted on
 synthetic data with the real feature-contract column names.
 
     cd backend/lambdas/risk-scorer && python -m unittest test_counterfactuals -v
@@ -9,10 +9,14 @@ import unittest
 from unittest import mock
 
 import numpy as np
-import xgboost
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 import counterfactuals as cf
 import handler
+import linear_model
 
 SUBJECTS = cf.SUBJECTS
 
@@ -29,12 +33,12 @@ def fit(point, seed):
     X = rng.uniform(20, 95, size=(1500, len(cols)))
     latest = [i for i, c in enumerate(cols) if c.startswith(f"{point}_") or c == f"Attendance_{point}"]
     y = (X[:, latest].mean(axis=1) < 55).astype(int)
-    booster = xgboost.train({"objective": "binary:logistic", "max_depth": 3, "eta": 0.3, "seed": seed},
-                            xgboost.DMatrix(X.astype(np.float32), label=y, feature_names=cols), num_boost_round=40)
-    return booster, cols
+    pipeline = Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler()),
+                         ("m", LogisticRegression(max_iter=2000, random_state=seed))]).fit(X, y)
+    return linear_model.LogisticModel(linear_model.from_pipeline(pipeline, cols, X)), cols
 
 
-BOOSTERS = {p: fit(p, i + 1) for i, p in enumerate(["T1M", "T1F", "T2M", "T2F", "T3M"])}
+MODELS = {p: fit(p, i + 1) for i, p in enumerate(["T1M", "T1F", "T2M", "T2F", "T3M"])}
 
 
 def stats(mark_cap=12.0, attendance_cap=4.0, improvement=3.0):
@@ -59,8 +63,8 @@ def student(point, mark, attendance=80.0, missing=()):
 
 def evaluation(point):
     nxt = cf.NEXT[point]
-    booster, cols = BOOSTERS[nxt]
-    return cf.ModelEvaluation(nxt, booster, cols, 0.5)
+    model, cols = MODELS[nxt]
+    return cf.ModelEvaluation(nxt, model, cols, 0.5)
 
 
 RULES = {"static_mark_cap": 20.0, "static_attendance_cap": 10.0, "options": 3, "seed": 20261}
@@ -245,16 +249,29 @@ class FakeModel:
         self.with_stats = with_stats
 
     def point(self, point):
-        return {"features": BOOSTERS[point][1], "threshold": 0.5}
+        return {"features": MODELS[point][1], "threshold": 0.5}
 
-    def booster(self, point):
-        return BOOSTERS[point][0]
+    def model(self, point):
+        return MODELS[point][0]
 
     def counterfactual_stats(self):
         return stats() if self.with_stats else None
 
 
 class Handler(unittest.TestCase):
+    def test_score_returns_additive_linear_shap(self):
+        with mock.patch.object(handler.model_store, "load", return_value=FakeModel()):
+            rows = [{"row_id": 0, "features": student("T1F", 40, 70, missing=["Physics"])},
+                    {"row_id": 1, "features": student("T1F", 80, 95)}]
+            out = handler.handler({"action": "score", "prediction_point": "T1F", "rows": rows})
+            self.assertEqual(out["explainer"], "shap-linear")
+            low, high = out["predictions"]
+            self.assertTrue(low["at_risk"])
+            self.assertFalse(high["at_risk"])
+            for p in out["predictions"]:
+                log_odds = p["base_value"] + sum(p["contributions"].values())
+                self.assertAlmostEqual(1 / (1 + np.exp(-log_odds)), p["probability"], places=4)
+
     def test_action_picks_next_model_or_rule(self):
         with mock.patch.object(handler.model_store, "load", return_value=FakeModel()):
             out = handler.handler({"action": "counterfactuals", "prediction_point": "T2M", "model_version": "test-v1",

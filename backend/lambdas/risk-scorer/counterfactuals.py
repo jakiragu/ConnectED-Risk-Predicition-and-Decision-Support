@@ -43,7 +43,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import xgboost
 
 warnings.filterwarnings("ignore")
 
@@ -104,15 +103,15 @@ class ModelEvaluation:
 
     kind = "model"
 
-    def __init__(self, point, booster, features, threshold):
+    def __init__(self, point, model, features, threshold):
         self.point = point
-        self.booster = booster
+        self.model = model  # linear_model.LogisticModel
         self.features = features
         self.threshold = threshold
 
     def scores(self, rows):
-        m = np.array([[np.nan if r.get(f) is None else float(r[f]) for f in self.features] for r in rows], dtype=np.float32)
-        return [float(x) for x in self.booster.predict(xgboost.DMatrix(m, feature_names=self.features, missing=np.nan))]
+        m = np.array([[np.nan if r.get(f) is None else float(r[f]) for f in self.features] for r in rows], dtype=np.float64)
+        return [float(x) for x in self.model.predict_proba(m)]
 
     def at_risk(self, score):
         return score >= self.threshold

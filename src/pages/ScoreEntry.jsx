@@ -13,6 +13,11 @@ import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 
 // A cell holds a number, ABS (absent) or NA (not assessed); see score.js.
 const asText = (score) => cellText(score);
+// Has the cell been changed from what is saved? "abs" and "ABS" are the same mark, so statuses compare in stored form.
+const isChanged = (draft, score) => {
+  const text = String(draft ?? '').trim();
+  return (tokenStatus(text) ? text.toUpperCase() : text) !== asText(score);
+};
 
 export default function ScoreEntry() {
   const { assessmentId } = useParams();
@@ -68,7 +73,7 @@ export default function ScoreEntry() {
   const readOnly = assessment?.status === 'LOCKED' || !teaches;
 
   const changed = useMemo(
-    () => roster.filter((s) => (drafts[s.student_id] ?? '').trim() !== asText(saved[s.student_id])),
+    () => roster.filter((s) => isChanged(drafts[s.student_id], saved[s.student_id])),
     [roster, drafts, saved]
   );
 
@@ -85,14 +90,18 @@ export default function ScoreEntry() {
   function edit(studentId, value) {
     setDrafts((d) => ({ ...d, [studentId]: value }));
     setRowNotes((n) => ({ ...n, [studentId]: undefined }));
-    const check = validateEntry({ student_id: studentId, raw_score: value }, { assessment, roster: rosterIds });
+    // ABS and NA are statuses, not scores: check them as the status they mean, as save() sends them.
+    const status = tokenStatus(value);
+    const check = validateEntry(status
+      ? { student_id: studentId, raw_score: null, mark_status: status }
+      : { student_id: studentId, raw_score: value }, { assessment, roster: rosterIds });
     setRowErrors((e) => ({ ...e, [studentId]: check.ok ? undefined : check.reason }));
   }
 
   function nextOnEnter(e, index) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    inputs.current[index + 1]?.focus();
+    inputs.current.slice(index + 1).find((input) => input && !input.disabled)?.focus();
   }
 
   async function save() {
@@ -171,7 +180,7 @@ export default function ScoreEntry() {
           {assessment.paper_no ? ` · ${componentLabel(assessment)} ${assessment.paper_no}` : ''} · {assessment.weight}%
         </span>
         <span>Marked out of <b>{assessment.max_score}</b></span>
-        <Info label="Entering marks">Type a mark, ABS for absent or NA for not assessed. Marks save when you press Save.</Info>
+        <Info label="Entering marks">Enter a mark or choose Absent or Not assessed. Choose Mark to enter a number again. Marks save when you press Save.</Info>
         <span><b>{entered}</b> of {roster.length} entered</span>
         {changed.length > 0 && <span><b>{changed.length}</b> unsaved</span>}
       </div>
@@ -216,33 +225,49 @@ export default function ScoreEntry() {
             )}
             {shown.map((s, i) => {
               const draft = drafts[s.student_id] ?? '';
+              const status = tokenStatus(draft);
               const err = rowErrors[s.student_id];
               const note = rowNotes[s.student_id];
-              const dirty = draft.trim() !== asText(saved[s.student_id]);
+              const dirty = isChanged(draft, saved[s.student_id]);
               const pct = !err && !isBlank(draft) && !tokenStatus(draft) ? normalize(Number(draft), assessment.max_score) : null;
               return (
                 <tr key={s.student_id} className={err ? 'row-error' : dirty ? 'row-dirty' : ''}>
                   <td>{s.admission_no}</td>
                   <td>{s.first_name} {s.last_name}</td>
                   <td>
-                    <input
-                      ref={(el) => (inputs.current[i] = el)}
-                      className="mark-input"
-                      inputMode="text"
-                      value={draft}
-                      disabled={readOnly}
-                      aria-invalid={Boolean(err)}
-                      aria-label={`Mark for ${s.first_name} ${s.last_name}`}
-                      onChange={(e) => edit(s.student_id, e.target.value)}
-                      onKeyDown={(e) => nextOnEnter(e, i)}
-                    />
-                    <span className="hint"> / {assessment.max_score}</span>
+                    <div className="mark-control">
+                      <input
+                        ref={(el) => (inputs.current[i] = el)}
+                        className="mark-input"
+                        type="number"
+                        min="0"
+                        max={assessment.max_score}
+                        step="0.5"
+                        value={status ? '' : draft}
+                        disabled={readOnly || Boolean(status)}
+                        aria-invalid={Boolean(err)}
+                        aria-label={`Mark for ${s.first_name} ${s.last_name}`}
+                        onChange={(e) => edit(s.student_id, e.target.value)}
+                        onKeyDown={(e) => nextOnEnter(e, i)}
+                      />
+                      <span className="hint"> / {assessment.max_score}</span>
+                      <select
+                        value={status ? draft : ''}
+                        disabled={readOnly}
+                        aria-label={`Mark status for ${s.first_name} ${s.last_name}`}
+                        onChange={(e) => edit(s.student_id, e.target.value)}
+                      >
+                        <option value="">Mark</option>
+                        <option value="ABS">Absent</option>
+                        <option value="NA">Not assessed</option>
+                      </select>
+                    </div>
                   </td>
                   <td>{pct === null ? '—' : `${pct}%`}</td>
                   <td>
                     {err ? <span className="error">{err}</span>
                       : note ? <span className="warn">{note}</span>
-                      : dirty ? <span className="hint">Unsaved</span>
+                      : dirty ? <span className="warn">Unsaved</span>
                       : saved[s.student_id] ? <span className="ok">Saved</span>
                       : null}
                   </td>
@@ -258,7 +283,7 @@ export default function ScoreEntry() {
           <button className="btn" type="button" onClick={save} disabled={saving || changed.length === invalid}>
             {saving ? 'Saving' : 'Save marks'}
           </button>
-          {invalid > 0 && <span className="error">{invalid} mark{invalid === 1 ? '' : 's'} need fixing before they can be saved</span>}
+          {invalid > 0 && <span className="error">{invalid} mark{invalid === 1 ? ' needs' : 's need'} fixing before {invalid === 1 ? 'it' : 'they'} can be saved</span>}
         </div>
       )}
     </>

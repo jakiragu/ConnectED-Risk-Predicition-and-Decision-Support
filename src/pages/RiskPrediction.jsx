@@ -257,7 +257,7 @@ export default function RiskPrediction() {
                     <td>
                       {r.first_name} {r.last_name} <span className="hint">{r.admission_no}</span>
                       {r.missing_scores + r.missing_attendance > 0 && (
-                        <div><span className="chip muted" title="The model reads a missing result as lower risk">{r.missing_scores + r.missing_attendance} missing</span></div>
+                        <div><span className="chip muted" title="Missing results are estimated from the student’s own earlier or other results">{r.missing_scores + r.missing_attendance} missing</span></div>
                       )}
                     </td>
                     {all && <td>{r.class_name}</td>}

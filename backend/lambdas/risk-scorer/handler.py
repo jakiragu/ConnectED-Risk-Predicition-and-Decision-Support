@@ -8,10 +8,11 @@ row_id), and returns one probability per row from the current published
 model. Decisions about students are not made here: the probability and the
 model's threshold are returned as a decision-support signal.
 
-Explanations are SHAP values from XGBoost's built-in TreeSHAP
-(pred_contribs), which gives the same values as shap.TreeExplainer on these
-models (ml/verify_shap.py checks it). They are in log-odds: the base value plus
-every feature's contribution equals the model's output before the sigmoid.
+The model at each point is a logistic regression (linear_model.py). Explanations
+are SHAP values from the shap library's LinearExplainer, against the training
+rows as background (ml/verify_shap.py checks them). They are in log-odds: the
+base value plus every feature's contribution equals the model's output before
+the sigmoid.
 
 Actions
   score     {prediction_point, rows: [{row_id, features: {column: number|null}}]}
@@ -30,12 +31,11 @@ Actions
 import math
 
 import numpy as np
-import xgboost
 
 import counterfactuals as cf
 import model_store
 
-EXPLAINER = "xgboost-treeshap"
+EXPLAINER = "shap-linear"
 
 
 class InputError(Exception):
@@ -45,7 +45,7 @@ class InputError(Exception):
 def _matrix(rows, features):
     if not isinstance(rows, list) or not rows:
         raise InputError("rows must be a non-empty list")
-    data = np.full((len(rows), len(features)), np.nan, dtype=np.float32)
+    data = np.full((len(rows), len(features)), np.nan, dtype=np.float64)
     for i, row in enumerate(rows):
         given = row.get("features") or {}
         unknown = set(given) - set(features)
@@ -59,7 +59,7 @@ def _matrix(rows, features):
             if not math.isfinite(value):
                 raise InputError(f"row {row.get('row_id')}: {name} is not a finite number")
             data[i, j] = value
-    return xgboost.DMatrix(data, feature_names=features, missing=np.nan)
+    return data  # NaN where a result is missing; the model imputes it
 
 
 def score(event):
@@ -68,10 +68,10 @@ def score(event):
     spec = model.point(point)
     rows = event.get("rows")
     features = spec["features"]
-    booster = model.booster(point)
+    lr = model.model(point)
     matrix = _matrix(rows, features)
-    probabilities = booster.predict(matrix)
-    contributions = booster.predict(matrix, pred_contribs=True)  # (rows, features + 1); the last column is the base value
+    probabilities = lr.predict_proba(matrix)
+    base_value, contributions = lr.explain(matrix)  # contributions: (rows, features), in log-odds
     threshold = float(spec["threshold"])
     return {
         "model_version": model.version,
@@ -83,8 +83,8 @@ def score(event):
                 "row_id": row.get("row_id"),
                 "probability": round(float(p), 6),
                 "at_risk": bool(p >= threshold),
-                "base_value": round(float(c[-1]), 6),
-                "contributions": {name: round(float(v), 6) for name, v in zip(features, c[:-1])},
+                "base_value": round(float(base_value), 6),
+                "contributions": {name: round(float(v), 6) for name, v in zip(features, c)},
             }
             for row, p, c in zip(rows, probabilities, contributions)
         ],
@@ -108,7 +108,7 @@ def counterfactual_targets(event):
             raise InputError(str(e)) from e
     else:
         spec = model.point(nxt)
-        evaluation = cf.ModelEvaluation(nxt, model.booster(nxt), spec["features"], float(spec["threshold"]))
+        evaluation = cf.ModelEvaluation(nxt, model.model(nxt), spec["features"], float(spec["threshold"]))
     stats = model.counterfactual_stats()
     rules = cf.settings()
     results = []
@@ -139,9 +139,10 @@ def selftest(event):
             {"row_id": "all-missing", "features": {}},
             {"row_id": "typical", "features": {f: (85.0 if f.startswith("Attendance") else 55.0) for f in features}},
         ]
-        p = model.booster(point).predict(_matrix(rows, features))
+        p = model.model(point).predict_proba(_matrix(rows, features))
         if not all(0.0 <= float(x) <= 1.0 for x in p):
             raise RuntimeError(f"{point}: probabilities outside [0, 1]")
+        model.model(point).explain(_matrix(rows, features))  # the SHAP explainer builds and runs
         report[point] = {"features": len(features), "threshold": spec["threshold"], "sample": [round(float(x), 4) for x in p]}
     model.counterfactual_stats()  # loads and checks the statistics when the package has them
     return {"model_version": version, "ok": True, "points": report,
