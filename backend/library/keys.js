@@ -18,10 +18,13 @@ export const sk = {
   classPrefix: () => 'CLASS#',
   assessment: (id) => `ASSESSMENT#${id}`,
   assessmentConfig: () => 'ASSESSMENTCONFIG#SCHOOL',
-  // One paper number per class + term + subject + checkpoint type. Claimed in the
-  // same transaction as the assessment, so two papers can never share a number.
-  paperSlot: (termId, classId, subject, assessmentType, paperNo) =>
-    `PAPER#${termId}#CLASS#${classId}#${subject}#${assessmentType}#${paperNo}`,
+  // One number per class + term + subject + exam + kind: Paper 1, CAT 1 and Quiz 1 can
+  // all exist. Claimed in the same transaction as the assessment, so two components of
+  // the same kind can never share a number. A paper keeps the key it always had, so
+  // slots stored before kinds existed stay valid; other kinds add the kind to the key.
+  paperSlot: (termId, classId, subject, assessmentType, paperNo, componentType = 'PAPER') =>
+    `PAPER#${termId}#CLASS#${classId}#${subject}#${assessmentType}#` +
+    `${componentType && componentType !== 'PAPER' ? `${componentType}#` : ''}${paperNo}`,
   score: (assessmentId, studentId) => `SCORE#${assessmentId}#${studentId}`,
   gradeRule: (termId) => `GRADERULE#${termId}`,
   // Results are published per class, so the term lock is per class.

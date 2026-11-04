@@ -150,6 +150,8 @@ export async function getRiskDashboard(actor, { school_id }) {
           latest: summary(p),
           targets: bestChanges(p, scope),
           partial: !scope.all,
+          // What the viewer may log an intervention for, so several students can be chosen at once.
+          factors: scopeView(scope).factors,
           interventions: mine.filter((i) => i.student_id === s.student_id).map((i) => i.method),
         });
       }

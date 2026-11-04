@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { ddb } from './client.js';
 import { TABLE, pk, sk, gsi1 } from './keys.js';
+import { componentTypeOf } from './assessment.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -34,7 +35,9 @@ const paperTaken = () => Object.assign(new Error('That paper number is already u
 
 /** The paper-number claim for an assessment, or null for rows created before paper numbers. */
 export const slotOf = (a) =>
-  a.paper_no ? sk.paperSlot(a.term_id, a.class_id, a.subject, a.assessment_type, a.paper_no) : null;
+  a.paper_no
+    ? sk.paperSlot(a.term_id, a.class_id, a.subject, a.assessment_type, a.paper_no, componentTypeOf(a))
+    : null;
 
 const claimSlot = (schoolId, SK, a) => ({
   Put: {
@@ -48,6 +51,7 @@ const claimSlot = (schoolId, SK, a) => ({
       term_id: a.term_id,
       subject: a.subject,
       assessment_type: a.assessment_type,
+      component_type: componentTypeOf(a),
       paper_no: a.paper_no,
     },
     ConditionExpression: 'attribute_not_exists(PK) OR assessment_id = :id',

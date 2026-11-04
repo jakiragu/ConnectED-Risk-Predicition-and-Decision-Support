@@ -17,6 +17,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Profile from './pages/Profile.jsx';
 import StudentProfile from './pages/StudentProfile.jsx';
 import InterventionForm from './pages/InterventionForm.jsx';
+import BulkInterventionForm from './pages/BulkInterventionForm.jsx';
 import SchoolRisk from './pages/SchoolRisk.jsx';
 
 function RequireAuth({ children }) {
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="students/:studentId/risk" element={<StudentProfile />} />
         <Route path="students/:studentId/interventions" element={<InterventionForm />} />
+        <Route path="interventions/new" element={<BulkInterventionForm />} />
         <Route path="school-risk" element={<RequireAdmin><SchoolRisk /></RequireAdmin>} />
         <Route path="classes" element={<Classes />} />
         <Route path="assessments" element={<Assessments />} />

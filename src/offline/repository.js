@@ -5,6 +5,7 @@ import {
   GET_ASSESSMENT,
   GET_ASSESSMENT_CONFIG,
   GET_CLASS_ROSTER,
+  GET_GRADE_RULE,
   LIST_MY_CLASSES,
   RESOLVE_SCORE_CONFLICT,
   LIST_TERMS,
@@ -87,6 +88,12 @@ export const repository = {
   loadAssessmentConfig: (schoolId) =>
     readThrough(`assessment-config:${schoolId}`, async () =>
       (await gql(GET_ASSESSMENT_CONFIG, { school_id: schoolId })).getAssessmentConfig
+    ),
+
+  /** A term's grading rule: whether it holds an Opener, and its checkpoint weights. Kept for offline use. */
+  loadGradeRule: (schoolId, termId) =>
+    readThrough(`grade-rule:${termId}`, async () =>
+      (await gql(GET_GRADE_RULE, { school_id: schoolId, term_id: termId })).getGradeRule
     ),
 
   loadAssessment: (schoolId, assessmentId) =>

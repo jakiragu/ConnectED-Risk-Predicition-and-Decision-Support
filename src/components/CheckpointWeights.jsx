@@ -1,26 +1,37 @@
 import { useCallback, useEffect, useState } from 'react';
 import { gql } from '../api/graphql.js';
 import { GET_GRADE_RULE, SET_CHECKPOINT_WEIGHTS } from '../api/operations.js';
+import { useAuth } from '../auth/AuthContext.jsx';
+import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 import { Info } from './ui.jsx';
 
 const FIELDS = [
-  { key: 'opener', label: 'Opener' },
-  { key: 'midterm', label: 'Mid-term' },
-  { key: 'endterm', label: 'End of term' },
+  { key: 'opener', checkpoint: 'OPENER' },
+  { key: 'midterm', checkpoint: 'MIDTERM' },
+  { key: 'endterm', checkpoint: 'ENDTERM' },
 ];
 
-export default function CheckpointWeights({ schoolId, termId, online }) {
+/**
+ * The term's exam setup: whether it holds an Opener (administrators) and how
+ * much each checkpoint counts towards the term result (any gradebook role).
+ * An Opener that is held may weigh 0%: it is then published and on report
+ * cards, but does not count towards the term result.
+ */
+export default function CheckpointWeights({ schoolId, termId, online, onChanged }) {
+  const { isAdmin } = useAuth();
+  const setup = useCheckpointSetup(schoolId, termId);
   const [rule, setRule] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [openerDraft, setOpenerDraft] = useState(null);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [showWeightHelp, setShowWeightHelp] = useState(false);
 
   const load = useCallback(async () => {
     if (!termId || !online) return;
     const { getGradeRule } = await gql(GET_GRADE_RULE, { school_id: schoolId, term_id: termId });
     setRule(getGradeRule);
     setDraft(null);
+    setOpenerDraft(null);
   }, [schoolId, termId, online]);
 
   useEffect(() => {
@@ -31,35 +42,33 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
   if (!online) return null;
   if (!rule) return error ? <div className="card error-card">{error}</div> : null;
 
+  const locked = rule.checkpoint_weights_locked;
+  const openerEnabled = openerDraft ?? rule.opener_enabled;
+  const fields = FIELDS.filter((f) => openerEnabled || f.checkpoint !== 'OPENER');
   const current = rule.checkpoint_weights || {};
   const baseValues = draft || {
     opener: current.opener ?? '',
     midterm: current.midterm ?? '',
     endterm: current.endterm ?? '',
   };
+  // No Opener this term: it weighs nothing.
+  const effective = openerEnabled ? baseValues : { ...baseValues, opener: 0 };
 
-  const unfilled = FIELDS.filter(
-    (f) => baseValues[f.key] === '' || baseValues[f.key] == null
-  );
-
-  const enteredTotal = FIELDS.reduce(
-    (total, f) => total + (baseValues[f.key] === '' ? 0 : Number(baseValues[f.key]) || 0),
+  const unfilled = fields.filter((f) => effective[f.key] === '' || effective[f.key] == null);
+  const enteredTotal = fields.reduce(
+    (total, f) => total + (effective[f.key] === '' ? 0 : Number(effective[f.key]) || 0),
     0
   );
+  const autoFilledKey = unfilled.length === 1 && enteredTotal <= 100 ? unfilled[0].key : null;
+  const values = autoFilledKey ? { ...effective, [autoFilledKey]: 100 - enteredTotal } : effective;
+  const total = fields.reduce((t, f) => t + (Number(values[f.key]) || 0), 0);
+  const dirty = Boolean(draft) || (openerDraft !== null && openerDraft !== rule.opener_enabled);
 
-  const autoFilledKey =
-    unfilled.length === 1 && enteredTotal <= 100
-      ? unfilled[0].key
-      : null;
-
-  const values = autoFilledKey
-    ? { ...baseValues, [autoFilledKey]: 100 - enteredTotal }
-    : baseValues;
-
-  const total = FIELDS.reduce(
-    (t, f) => t + (Number(values[f.key]) || 0),
-    0
-  );
+  function toggleOpener(on) {
+    setOpenerDraft(on);
+    // Keep the weights consistent with the choice: a removed Opener gives its weight back.
+    if (!on) setDraft({ ...baseValues, opener: 0 });
+  }
 
   async function save() {
     setError(null);
@@ -69,14 +78,18 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
         input: {
           school_id: schoolId,
           term_id: termId,
-          opener: Number(values.opener),
+          opener: Number(values.opener) || 0,
           midterm: Number(values.midterm),
           endterm: Number(values.endterm),
+          ...(openerDraft !== null ? { opener_enabled: openerDraft } : {}),
           _version: rule.checkpoint_weights_version,
         },
       });
       setRule(setCheckpointWeights);
       setDraft(null);
+      setOpenerDraft(null);
+      await setup.reload();
+      onChanged?.(setCheckpointWeights);
     } catch (e) {
       setError(e.message);
       if (e.errorType === 'Conflict' || e.errorType === 'Locked') await load().catch(() => {});
@@ -85,42 +98,64 @@ export default function CheckpointWeights({ schoolId, termId, online }) {
     }
   }
 
+  const openerName = setup.label('OPENER');
+  const canToggle = isAdmin && !locked && !rule.opener_locked_reason;
+
   return (
     <div className="card weights-card">
       <div className="weights-head">
-        <h2>Checkpoint weights</h2>
+        <h2>Exams and weights this term</h2>
 
         <Info label="About checkpoint weights">
-          These weights determine how much the Opener, Mid-term and End of term
-          exams contribute to the overall term result. The three weights must
-          add up to 100%.
+          The weights decide how much each exam contributes to the term result, and must add up to 100%.
+          An {openerName} can be held with a weight of 0%: its results are still published and printed on
+          report cards, but do not count towards the term result. Whether the term holds an {openerName} can
+          be changed by an administrator until results that depend on it are published.
         </Info>
       </div>
+
       <div className="weights-row">
-        {FIELDS.map((f) => (
+        <label className="weight-input" title={!canToggle ? rule.opener_locked_reason || undefined : undefined}>
+          <input
+            type="checkbox"
+            checked={openerEnabled}
+            disabled={!canToggle}
+            onChange={(e) => toggleOpener(e.target.checked)}
+          />
+          <span>This term holds an {openerName}</span>
+        </label>
+      </div>
+
+      <div className="weights-row">
+        {fields.map((f) => (
           <label key={f.key} className="weight-input">
-            <span>{f.label}</span>
+            <span>{setup.label(f.checkpoint)}</span>
             <input
               type="number"
               min="0"
               max="100"
               value={values[f.key]}
-              disabled={rule.checkpoint_weights_locked}
-              onChange={(e) => setDraft({ ...baseValues, [f.key]: e.target.value })}
+              disabled={locked}
+              onChange={(e) => setDraft({ ...effective, [f.key]: e.target.value })}
             />
             <span>%</span>
             {autoFilledKey === f.key && <small className="hint">Automatically calculated</small>}
           </label>
         ))}
         <span className={`budget ${total === 100 ? '' : 'warn'}`}>Total: <b>{total}%</b></span>
-        {!rule.checkpoint_weights_locked && (
-          <button type="button" className="btn" disabled={!draft || saving} onClick={save}>
-            {saving ? 'Saving' : 'Save weights'}
+        {!locked && (
+          <button type="button" className="btn" disabled={!dirty || saving} onClick={save}>
+            {saving ? 'Saving' : 'Save'}
           </button>
         )}
       </div>
-      {rule.checkpoint_weights_locked && <div className="hint">End of term results are published, so these are fixed.</div>}
-      {!draft && rule.checkpoint_weights_problems.map((p) => <div key={p} className="hint warn">{p}</div>)}
+      {openerEnabled && Number(values.opener) === 0 && (
+        <div className="hint">The {openerName} is held but weighs 0%: it is reported, not counted.</div>
+      )}
+      {locked && <div className="hint">End of term results are published, so these are fixed.</div>}
+      {!locked && rule.opener_locked_reason && <div className="hint">{rule.opener_locked_reason}</div>}
+      {!locked && !isAdmin && <div className="hint">Only an administrator can add or remove the {openerName}.</div>}
+      {!dirty && rule.checkpoint_weights_problems.map((p) => <div key={p} className="hint warn">{p}</div>)}
       {error && <div className="error">{error}</div>}
     </div>
   );

@@ -41,6 +41,10 @@ function breadcrumbsFor(pathname) {
     return [home, { label: 'Classes', to: '/classes' }, { label: 'Students' }];
   }
 
+  if (path === '/interventions/new') {
+    return [home, { label: 'Log an intervention' }];
+  }
+
   const studentMatch = path.match(/^\/students\/([^/]+)\/(risk|interventions)$/);
   if (studentMatch) {
     const [, studentId, page] = studentMatch;

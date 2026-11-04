@@ -18,9 +18,10 @@ type Assessment {
   class_id: ID!
   subject: String!
   title: String!
-  assessment_type: String!   # the checkpoint: Opener | Mid-term | End-term
-  paper_no: Int              # 1-3; unique per class + term + subject + checkpoint
-  weight: Float!             # share of this subject's checkpoint exam; papers total 100
+  assessment_type: String!   # the checkpoint: OPENER | MIDTERM | ENDTERM (older rows: Opener | Mid-term | End-term)
+  component_type: String     # PAPER | CAT | PRACTICAL | PROJECT; null on older rows (= PAPER)
+  paper_no: Int              # component number 1-6; unique per class + term + subject + checkpoint
+  weight: Float!             # share of this subject's checkpoint exam; its components total 100
   due_date: AWSDate
   created_at: AWSDateTime!
 
@@ -213,35 +214,42 @@ type CheckpointWeights {
   endterm: Float
 }
 
+# The school's assessment setup. The checkpoints are fixed (OPENER, MIDTERM,
+# ENDTERM); a school names them, chooses whether new terms hold an Opener, and
+# may set default checkpoint weights for new terms. CATs, practicals and
+# projects are components of a checkpoint exam (Assessment.component_type).
 type AssessmentTypeConfig {
-  key: String!
-  name: String!
+  key: String!               # OPENER | MIDTERM | ENDTERM
+  name: String!              # the school's name for it
   order: Int!
-  required: Boolean!
-  result_role: String!
-  risk_checkpoint: String
+  enabled: Boolean!          # OPENER: whether new terms hold one; MIDTERM and ENDTERM: always true
 }
 
 type AssessmentConfig {
   school_id: ID!
-  assessment_scheme: [AssessmentTypeConfig!]!
+  assessment_scheme: [AssessmentTypeConfig!]!   # always all three, in order
+  default_checkpoint_weights: CheckpointWeights # copied into each new term; null = none
   updated_at: AWSDateTime
   updated_by: ID
-  _version: Int!
+  _version: Int!             # 0 = never saved (defaults shown)
 }
 
 input AssessmentTypeConfigInput {
   key: String!
   name: String!
-  order: Int!
-  required: Boolean!
-  result_role: String!
-  risk_checkpoint: String
+  enabled: Boolean           # OPENER only; ignored for MIDTERM and ENDTERM
+}
+
+input CheckpointWeightsInput {
+  opener: Float!
+  midterm: Float!
+  endterm: Float!
 }
 
 input SaveAssessmentConfigInput {
   school_id: ID!
   assessment_scheme: [AssessmentTypeConfigInput!]!
+  default_checkpoint_weights: CheckpointWeightsInput
   _version: Int!
 }
 
@@ -250,6 +258,8 @@ type GradeRule {
   pass_mark: Float
   missing_score_policy: String
   bands: [GradeBand!]!
+  opener_enabled: Boolean!                  # this term holds an Opener (its own setting, else the school default)
+  opener_locked_reason: String              # why the Opener setting can no longer change; null = it can
   checkpoint_weights: CheckpointWeights
   checkpoint_weights_version: Int!          # pass to setCheckpointWeights; stale => Conflict
   checkpoint_weights_problems: [String!]!   # empty when the weights are valid
@@ -301,6 +311,7 @@ type PaperResult {
   assessment_id: ID!
   title: String!
   paper_no: Int
+  component_type: String
   max_score: Float!
   weight: Float!
   mark_status: PaperMark!
@@ -858,8 +869,9 @@ input CreateAssessmentInput {
   term_id: ID!
   subject: String!
   title: String!
-  assessment_type: String!
-  paper_no: Int!
+  assessment_type: String!   # OPENER (when the term holds one) | MIDTERM | ENDTERM
+  component_type: String     # PAPER (default) | CAT | PRACTICAL | PROJECT
+  paper_no: Int!             # component number 1-6
   weight: Float!
   max_score: Float!
   due_date: AWSDate
@@ -870,6 +882,7 @@ input UpdateAssessmentInput {
   school_id: ID!
   title: String
   assessment_type: String
+  component_type: String
   paper_no: Int
   weight: Float
   max_score: Float
@@ -942,9 +955,10 @@ input PublishSchoolResultsInput {
 input SetCheckpointWeightsInput {
   school_id: ID!
   term_id: ID!
-  opener: Float!
+  opener: Float!             # must be 0 when the term holds no Opener
   midterm: Float!
   endterm: Float!
+  opener_enabled: Boolean    # Admin: whether the term holds an Opener; omitted = unchanged
   _version: Int!             # GradeRule.checkpoint_weights_version you were editing
 }
 
@@ -1114,6 +1128,7 @@ type DashboardAtRisk {
   trend: [RiskSummary!]!          # every estimate this year, in checkpoint order
   targets: [RiskTargetChange!]!   # the first option's changes the viewer may see
   partial: Boolean!               # true: only the viewer's subjects are shown
+  factors: [String!]!             # subjects (and Attendance) the viewer may log interventions for
   interventions: [String!]!       # ongoing methods the viewer may see
 }
 

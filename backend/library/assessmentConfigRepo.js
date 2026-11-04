@@ -2,6 +2,7 @@ import { GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb } from './client.js';
 import { TABLE, pk, sk } from './keys.js';
 
+/** The school's assessment setup (one item per school), or null when it has never been saved. */
 export async function get(schoolId) {
   const result = await ddb.send(
     new GetCommand({
@@ -17,7 +18,11 @@ export async function get(schoolId) {
   return result.Item || null;
 }
 
-export async function save(schoolId, scheme, expectedVersion, actor) {
+/**
+ * Saves the setup. expectedVersion 0 creates it; otherwise the write only
+ * succeeds against that version (ConditionalCheckFailedException if stale).
+ */
+export async function save(schoolId, { scheme, defaultWeights }, expectedVersion, actor) {
   const timestamp = new Date().toISOString();
 
   if (expectedVersion === 0) {
@@ -27,6 +32,7 @@ export async function save(schoolId, scheme, expectedVersion, actor) {
       entity: 'AssessmentConfig',
       school_id: schoolId,
       assessment_scheme: scheme,
+      default_checkpoint_weights: defaultWeights ?? null,
       created_at: timestamp,
       updated_at: timestamp,
       updated_by: actor.sub,
@@ -52,7 +58,7 @@ export async function save(schoolId, scheme, expectedVersion, actor) {
         SK: sk.assessmentConfig(),
       },
       UpdateExpression:
-        'SET assessment_scheme = :scheme, updated_at = :ts, ' +
+        'SET assessment_scheme = :scheme, default_checkpoint_weights = :weights, updated_at = :ts, ' +
         'updated_by = :by, #v = #v + :one',
       ConditionExpression: 'attribute_exists(PK) AND #v = :expected',
       ExpressionAttributeNames: {
@@ -60,6 +66,7 @@ export async function save(schoolId, scheme, expectedVersion, actor) {
       },
       ExpressionAttributeValues: {
         ':scheme': scheme,
+        ':weights': defaultWeights ?? null,
         ':ts': timestamp,
         ':by': actor.sub,
         ':one': 1,

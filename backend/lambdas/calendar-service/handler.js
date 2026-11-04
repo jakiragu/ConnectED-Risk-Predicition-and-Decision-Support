@@ -8,6 +8,8 @@ import { TABLE, pk, sk } from '../../library/keys.js';
 import * as attendance from '../../library/attendanceRepo.js';
 import * as calendar from '../../library/calendarRepo.js';
 import * as platform from '../../library/platformRepo.js';
+import * as assessmentConfig from '../../library/assessmentConfigRepo.js';
+import { defaultWeightsOf, openerDefault } from '../../library/assessmentConfig.js';
 
 export async function handler(event) {
   const actor = await resolveActor(event);
@@ -66,7 +68,12 @@ async function listTerms(actor, { school_id }) {
   return (await platform.listTerms(school_id)).map((t) => termView(t));
 }
 
-/** A new term gets a grading rule copied from the latest one, so results can be calculated in it. */
+/**
+ * A new term gets a grading rule copied from the latest one, so results can be
+ * calculated in it. Whether it holds an Opener, and its starting checkpoint
+ * weights, come from the school's assessment setup; the term can change both
+ * on the Assessments page until results are published.
+ */
 async function ensureGradeRule(schoolId, termId, actor) {
   if (await platform.gradeRule(schoolId, termId)) return;
   const terms = await platform.listTerms(schoolId);
@@ -76,6 +83,8 @@ async function ensureGradeRule(schoolId, termId, actor) {
     template = await platform.gradeRule(schoolId, t.term_id);
     if (template) break;
   }
+  const config = await assessmentConfig.get(schoolId);
+  const defaultWeights = defaultWeightsOf(config);
   const ts = new Date().toISOString();
   try {
     await ddb.send(new PutCommand({
@@ -91,6 +100,8 @@ async function ensureGradeRule(schoolId, termId, actor) {
         at_risk_threshold: template?.at_risk_threshold ?? 50,
         missing_score_policy: template?.missing_score_policy ?? 'EXCLUDE',
         bands: template?.bands ?? [],
+        opener_enabled: openerDefault(config),
+        ...(defaultWeights ? { checkpoint_weights: defaultWeights } : {}),
         checkpoint_weights_version: 0,
         updated_at: ts,
         updated_by: actor.sub,

@@ -141,6 +141,7 @@ select:disabled, input:disabled { background: var(--surface-alt); color: var(--m
 .btn:hover { background: var(--ink-strong); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.secondary { background: transparent; color: var(--ink); }
+.btn.secondary:hover:not(:disabled) { background: var(--surface-alt); }
 .btn.link { background: none; border: none; color: var(--ink); text-decoration: underline; padding: 0; }
 .btn.link.danger { color: var(--danger); }
 
@@ -360,6 +361,10 @@ th input[type='checkbox'] { accent-color: var(--accent); }
 /* ---- buttons ---- */
 .btn.small { padding: 6px var(--space-3); font-size: var(--t-sm); }
 .btn.danger { background: var(--danger); border-color: var(--danger); }
+/* A button with a small icon before its label. */
+.btn.icon-text { display: inline-flex; align-items: center; gap: var(--space-1); }
+.btn.small svg { width: 15px; height: 15px; flex: none; }
+.pill svg { width: 12px; height: 12px; }
 
 /* ---- action bar under a selection table ---- */
 .action-bar {
@@ -483,11 +488,31 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-3); }
 .editor label { display: grid; gap: var(--space-1); font-size: var(--t-sm); color: var(--muted); }
 .editor .wide { grid-column: 1 / -1; }
-.intervention { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--line-soft); }
+.intervention { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--line-soft); }
 .intervention:last-child { border-bottom: 0; }
 .intervention.removed b { text-decoration: line-through; color: var(--muted); }
+/* Row actions: spaced apart and kept to the right; they wrap under the text on narrow screens. */
+.intervention .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); flex: none; }
+/* Delete keeps its red but stays quiet beside the other row actions, as it does in tables. */
+.intervention .actions .btn.danger { background: none; color: var(--danger); }
+.intervention .actions .btn.danger:hover { background: var(--risk-soft); }
+.stack.tight { gap: var(--space-1); }
+/* Several students, one intervention */
+.table-wrap.bordered { border: 1px solid var(--line-soft); }
+.bulk-students td { vertical-align: middle; }
+.bulk-students tr.left-out td:first-child b { color: var(--muted); }
+.btn.link.icon-only { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--radius-sm); text-decoration: none; color: var(--muted); }
+.btn.link.icon-only:hover { color: var(--danger); background: var(--risk-soft); }
 .suggestions { position: sticky; top: var(--space-4); }
-.suggestion { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.suggestion { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+.suggestion .what { display: grid; gap: 0; min-width: 0; }
+.suggestion .what .hint { font-size: var(--t-xs); }
+.suggestion > .btn, .suggestion > .pill { flex: none; }
+.suggestion.in-form { border-color: var(--good); background: var(--good-soft); }
+@media (max-width: 600px) {
+  .intervention { flex-direction: column; gap: var(--space-2); }
+  .intervention .actions { justify-content: flex-start; }
+}
 
 /* ---- expandable risk table ---- */
 .risk-student-row {
@@ -496,6 +521,10 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
 .risk-student-row:hover {
   background: var(--surface-alt);
 }
+.risk-student-row.open { background: var(--info-soft); }
+/* The tick column: narrow, and a larger target than the box itself. */
+th.pick, td.pick { width: 2.75rem; padding-right: 0; }
+td.pick { cursor: default; }
 .risk-student-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
