@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CHECKPOINTS, CHECKPOINT_LABEL, SEVERITY } from '@gradebook/domain/results';
+import { SEVERITY } from '@gradebook/domain/results';
+import { componentLabel } from '@gradebook/domain/assessment';
 import { gql } from '../api/graphql.js';
 import { useLatest } from '../api/useLatest.js';
 import {
@@ -22,6 +23,7 @@ import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
+import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 
 const POLL_MS = 3000;
 const IN_FLIGHT = new Set(['PENDING', 'RUNNING']);
@@ -72,7 +74,7 @@ function Issues({ set }) {
 }
 
 /** Every class for one term + checkpoint: administrators calculate and publish many at once. */
-function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChanged }) {
+function SchoolPanel({ schoolId, termId, checkpoint, label, onOpen, refreshKey, onChanged }) {
   const [rows, setRows] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [outcomes, setOutcomes] = useState(null);
@@ -144,7 +146,6 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
   const calculate = () =>
     run(CALCULATE_SCHOOL_RESULTS, { school_id: schoolId, term_id: termId, checkpoint, class_ids: chosen.map((r) => r.class_id) });
   function publish() {
-    const label = CHECKPOINT_LABEL[checkpoint];
     const skipped = chosen.length - ready.length;
     const message =
       `Publish ${label} results for ${ready.length} class${ready.length === 1 ? '' : 'es'}?` +
@@ -164,7 +165,7 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
   return (
     <div className="card">
       <div className="weights-head">
-        <h2>{CHECKPOINT_LABEL[checkpoint]}: whole school</h2>
+        <h2>{label}: whole school</h2>
       </div>
       {error && <Notice tone="error">{error}</Notice>}
       <div className="table-wrap">
@@ -234,11 +235,13 @@ function SchoolPanel({ schoolId, termId, checkpoint, onOpen, refreshKey, onChang
   );
 }
 
-function ResultsTable({ rows, roster, set, subject }) {
+function ResultsTable({ rows, roster, set, subject, setup }) {
   const final = set.kind === 'FINAL';
   const subjects = subject ? set.subjects.filter((s) => s === subject) : set.subjects;
   const byStudent = new Map(rows.map((r) => [r.student_id, r]));
-  const label = CHECKPOINT_LABEL[set.checkpoint];
+  const label = setup.label(set.checkpoint);
+  // Earlier checkpoints that feed the term result: the Opener only when the term holds one.
+  const earlier = setup.checkpoints.filter((c) => c !== 'ENDTERM');
 
   // One subject: show each paper's mark, then the exam (and term) result.
   const papers = subject
@@ -264,9 +267,11 @@ function ResultsTable({ rows, roster, set, subject }) {
             <th>Adm no</th><th>Student</th>
             {subject
               ? <>
-                  {papers.map((p) => <th key={p.assessment_id}>Paper {p.paper_no ?? '—'} ({p.weight}%)</th>)}
+                  {papers.map((p) => (
+                    <th key={p.assessment_id} title={p.title}>{componentLabel(p)} {p.paper_no ?? '—'} ({p.weight}%)</th>
+                  ))}
                   <th>{label} exam</th>
-                  {final && <><th>Opener</th><th>Mid-term</th><th>Term score</th><th>Grade</th></>}
+                  {final && <>{earlier.map((c) => <th key={c}>{setup.label(c)}</th>)}<th>Term score</th><th>Grade</th></>}
                 </>
               : <>
                   {subjects.map((s) => <th key={s}>{s}</th>)}
@@ -292,8 +297,7 @@ function ResultsTable({ rows, roster, set, subject }) {
                       <td>{s?.score === null || s?.score === undefined ? '—' : `${fmt(s.score)}%`}</td>
                       {final && (
                         <>
-                          <td>{comp('OPENER') == null ? '—' : `${fmt(comp('OPENER'))}%`}</td>
-                          <td>{comp('MIDTERM') == null ? '—' : `${fmt(comp('MIDTERM'))}%`}</td>
+                          {earlier.map((c) => <td key={c}>{comp(c) == null ? '—' : `${fmt(comp(c))}%`}</td>)}
                           <td>{fmt(s?.term?.term_score)}</td>
                           <td><b>{s?.term?.grade || '—'}</b></td>
                         </>
@@ -325,7 +329,10 @@ export default function Results() {
   const resultsSectionRef = useRef(null);
 
   const termId = params.get('term') || defaultTermId;
-  const checkpoint = CHECKPOINTS.includes(params.get('cp')) ? params.get('cp') : 'OPENER';
+  // Only the checkpoints this term holds: without an Opener the page starts at Mid-term.
+  const setup = useCheckpointSetup(actor.schoolId, termId);
+  const checkpoint = setup.checkpoints.includes(params.get('cp')) ? params.get('cp') : setup.checkpoints[0];
+  const cpLabel = setup.label(checkpoint);
   const classId = params.get('class') || '';
   const subject = params.get('subject') || '';
   const go = (next) => {
@@ -418,7 +425,7 @@ export default function Results() {
     act(CALCULATE_TERM_RESULTS, scope, (s) =>
       s.blocking ? 'Calculated. Fix the problems below before publishing.' : 'Calculated. Review the results, then publish.');
   function publish() {
-    const label = CHECKPOINT_LABEL[checkpoint];
+    const label = cpLabel;
     const finalNote = checkpoint === 'ENDTERM'
       ? '\n\nThis is the official end of term result. The term is locked for this class afterwards.'
       : '';
@@ -442,12 +449,12 @@ export default function Results() {
 
 
       <div className="segmented" role="tablist" aria-label="Checkpoint">
-        {CHECKPOINTS.map((c) => {
+        {setup.checkpoints.map((c) => {
           const s = sets.find((x) => x.checkpoint === c);
           return (
             <button key={c} type="button" role="tab" aria-selected={c === checkpoint}
               className={`seg ${c === checkpoint ? 'active' : ''}`} onClick={() => go({ cp: c })}>
-              <span>{CHECKPOINT_LABEL[c]}</span>
+              <span>{setup.label(c)}</span>
               {classId && s && <StatusPill status={s.status} />}
             </button>
           );
@@ -459,6 +466,7 @@ export default function Results() {
           schoolId={actor.schoolId}
           termId={termId}
           checkpoint={checkpoint}
+          label={cpLabel}
           refreshKey={schoolRefresh}
           onChanged={() => load().catch(() => {})}
           onOpen={(id) => go({ class: id, subject: '' })}
@@ -466,7 +474,7 @@ export default function Results() {
       )}
 
       <div ref={resultsSectionRef} className="page-head" id="class-results">
-        <h2>{className ? `${className}: ${CHECKPOINT_LABEL[checkpoint]}` : 'Class results'}</h2>
+        <h2>{className ? `${className}: ${cpLabel}` : 'Class results'}</h2>
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v, subject: '' })}
           options={sortedClasses.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Choose a class" />
         {classId && (
@@ -486,10 +494,10 @@ export default function Results() {
           <div className="budget-row">
             <StatusPill status={set.status} />
             {set.status !== 'NOT_CALCULATED' && set.status !== 'UNPUBLISHED' && (
-              <span>{set.student_count} students · {set.assessment_count} papers</span>
+              <span>{set.student_count} students · {set.assessment_count} papers and components</span>
             )}
             {final && weights && (
-              <span>Term result = Opener {weights.OPENER}% + Mid-term {weights.MIDTERM}% + End of term {weights.ENDTERM}%</span>
+              <span>Term result = {setup.checkpoints.map((c) => `${setup.label(c)} ${weights[c] ?? 0}%`).join(' + ')}</span>
             )}
             <ReportCards set={set} />
             {reviewer && set.status !== 'PUBLISHED' && (
@@ -517,21 +525,21 @@ export default function Results() {
 
           {set.status === 'UNPUBLISHED' || set.status === 'NOT_CALCULATED' ? (
             <EmptyState title={reviewer ? 'Not calculated yet' : 'Not published yet'}>
-              {reviewer ? `Calculate to review ${CHECKPOINT_LABEL[checkpoint]} results for ${className}.`
-                : `${CHECKPOINT_LABEL[checkpoint]} results for ${className} appear here once they are published.`}
+              {reviewer ? `Calculate to review ${cpLabel} results for ${className}.`
+                : `${cpLabel} results for ${className} appear here once they are published.`}
             </EmptyState>
           ) : rows.length > 0 ? (
             <>
               <div className="row">
-                <span className="chip">{CHECKPOINT_LABEL[checkpoint]}</span>
+                <span className="chip">{cpLabel}</span>
                 <span className="chip">{final ? 'Term result' : 'Exam result only'}</span>
                 <Info label="What these results are">
                   {final
                     ? 'Official end-of-term results: each subject combines its checkpoint exams by the weights shown, and is graded.'
-                    : `The ${CHECKPOINT_LABEL[checkpoint]} exam on its own: each subject's papers make up the whole exam. It is not the term result, so no grade is given.`}
+                    : `The ${cpLabel} exam on its own: each subject's papers and other components make up the whole exam. It is not the term result, so no grade is given.`}
                 </Info>
               </div>
-              <ResultsTable rows={rows} roster={roster} set={set} subject={subject} />
+              <ResultsTable rows={rows} roster={roster} set={set} subject={subject} setup={setup} />
             </>
           ) : null}
         </>

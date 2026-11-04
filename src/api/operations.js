@@ -1,5 +1,5 @@
 const ASSESSMENT_FIELDS = `
-  assessment_id school_id class_id term_id subject title assessment_type paper_no
+  assessment_id school_id class_id term_id subject title assessment_type component_type paper_no
   weight max_score due_date status score_count created_at updated_at
   deleted_at deleted_by published_in _version
 `;
@@ -37,6 +37,24 @@ export const GET_ASSESSMENT = `
     getAssessment(school_id: $school_id, assessment_id: $assessment_id) {
       ${ASSESSMENT_FIELDS}
     }
+  }`;
+
+const ASSESSMENT_CONFIG_FIELDS = `
+  school_id
+  assessment_scheme { key name order enabled }
+  default_checkpoint_weights { opener midterm endterm }
+  updated_at
+  _version
+`;
+
+export const GET_ASSESSMENT_CONFIG = `
+  query GetAssessmentConfig($school_id: ID!) {
+    getAssessmentConfig(school_id: $school_id) { ${ASSESSMENT_CONFIG_FIELDS} }
+  }`;
+
+export const SAVE_ASSESSMENT_CONFIG = `
+  mutation SaveAssessmentConfig($input: SaveAssessmentConfigInput!) {
+    saveAssessmentConfig(input: $input) { ${ASSESSMENT_CONFIG_FIELDS} }
   }`;
 
 export const CREATE_ASSESSMENT = `
@@ -123,7 +141,7 @@ export const LIST_TERMS = `
 // ------------------------------------------------------------------ results
 
 const GRADE_RULE_FIELDS = `
-  term_id pass_mark missing_score_policy
+  term_id pass_mark missing_score_policy opener_enabled opener_locked_reason
   checkpoint_weights { opener midterm endterm }
   checkpoint_weights_version checkpoint_weights_problems checkpoint_weights_locked
 `;
@@ -168,7 +186,7 @@ export const GET_TERM_RESULTS = `
       student_id checkpoint kind checkpoint_average term_average term_grade published published_at
       subjects {
         subject score earned covered assessed_count absent_count not_assessed_count missing_count
-        papers { assessment_id title paper_no max_score weight mark_status raw_score percent contribution }
+        papers { assessment_id title paper_no component_type max_score weight mark_status raw_score percent contribution }
         term { weight_applied term_score grade components { checkpoint score weight } }
       }
     }

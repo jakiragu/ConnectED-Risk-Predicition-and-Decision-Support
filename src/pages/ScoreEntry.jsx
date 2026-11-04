@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { validateEntry, normalize, isBlank, cellText, tokenStatus } from '@gradebook/domain/score';
+import { checkpointOf, componentLabel } from '@gradebook/domain/assessment';
 import { gql } from '../api/graphql.js';
 import { GET_ASSESSMENT, GET_CLASS_ROSTER, LIST_SCORES, SUBMIT_SCORES } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -8,6 +9,7 @@ import StatusPill from '../components/StatusPill.jsx';
 import { Info, Notice, useToast } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
+import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 
 // A cell holds a number, ABS (absent) or NA (not assessed); see score.js.
 const asText = (score) => cellText(score);
@@ -18,6 +20,8 @@ export default function ScoreEntry() {
   const { actor } = useAuth();
 
   const [assessment, setAssessment] = useState(null);
+  // The school's name for this assessment's exam.
+  const setup = useCheckpointSetup(actor.schoolId, assessment?.term_id);
   const [roster, setRoster] = useState([]);
   const [saved, setSaved] = useState({});
   const [drafts, setDrafts] = useState({});
@@ -162,7 +166,10 @@ export default function ScoreEntry() {
 
       <div className="budget-row">
         <span>{assessment.subject}</span>
-        <span>{assessment.assessment_type}{assessment.paper_no ? ` paper ${assessment.paper_no}` : ''} · {assessment.weight}%</span>
+        <span>
+          {setup.label(checkpointOf(assessment.assessment_type))}
+          {assessment.paper_no ? ` · ${componentLabel(assessment)} ${assessment.paper_no}` : ''} · {assessment.weight}%
+        </span>
         <span>Marked out of <b>{assessment.max_score}</b></span>
         <Info label="Entering marks">Type a mark, ABS for absent or NA for not assessed. Marks save when you press Save.</Info>
         <span><b>{entered}</b> of {roster.length} entered</span>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CHECKPOINTS, CHECKPOINT_LABEL } from '@gradebook/domain/results';
 import { gql } from '../api/graphql.js';
 import { LIST_REPORT_CARDS, LIST_RESULT_SETS, REQUEST_REPORT_CARD_DOWNLOAD } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -12,6 +11,7 @@ import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
+import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 
 /** Starts a browser download from a short-lived link; the server sets the file name. */
 function save(url, fileName) {
@@ -38,7 +38,9 @@ export default function ReportCards() {
     [classes, isAdmin]
   );
   const termId = params.get('term') || defaultTermId;
-  const checkpoint = CHECKPOINTS.includes(params.get('cp')) ? params.get('cp') : 'ENDTERM';
+  // Only the checkpoints this term held: a term without an Opener has no Opener report cards.
+  const setup = useCheckpointSetup(actor.schoolId, termId);
+  const checkpoint = setup.checkpoints.includes(params.get('cp')) ? params.get('cp') : 'ENDTERM';
   const classId = params.get('class') || mine[0]?.class_id || '';
   const go = (next) => setParams(Object.fromEntries(Object.entries({ term: termId, cp: checkpoint, class: classId, ...next }).filter(([, v]) => v)));
 
@@ -155,7 +157,7 @@ export default function ReportCards() {
         <Select aria-label="Term" value={termId} onChange={(v) => go({ term: v })}
           options={terms.map((t) => ({ value: t.term_id, label: t.name }))} placeholder="Choose a term" />
         <Select aria-label="Checkpoint" value={checkpoint} onChange={(v) => go({ cp: v })}
-          options={CHECKPOINTS.map((c) => ({ value: c, label: CHECKPOINT_LABEL[c] }))} />
+          options={setup.checkpoints.map((c) => ({ value: c, label: setup.label(c) }))} />
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
           options={mine.map((c) => ({ value: c.class_id, label: c.name }))} disabled={!isAdmin && mine.length === 1} />
       </div>
@@ -166,7 +168,7 @@ export default function ReportCards() {
         {set && <StatusPill status={set.status} />}
         {set?.status === 'PUBLISHED'
           ? <span>{ready} of {cards.length} report cards ready{checkpoint === 'ENDTERM' ? ' (official)' : ' (provisional)'}</span>
-          : <span>{CHECKPOINT_LABEL[checkpoint]} results for {className} are not published, so there are no report cards yet.</span>}
+          : <span>{setup.label(checkpoint)} results for {className} are not published, so there are no report cards yet.</span>}
         {ready > 0 && (
           <button type="button" className="btn" disabled={busy !== null} onClick={all}>
             {busy === 'all' ? 'Downloading' : `Download all (${ready})`}

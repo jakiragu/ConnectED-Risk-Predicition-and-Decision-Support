@@ -5,7 +5,9 @@ import { ddb } from '../backend/library/client.js';
 import { TABLE, pk, sk, gsi1, gsi2, gsi3 } from '../backend/library/keys.js';
 import { ensureTable } from './create-table.js';
 import * as identity from '../backend/library/identity.js';
+import { DEFAULT_ASSESSMENT_SCHEME } from '../backend/library/assessmentConfig.js';
 import { pathToFileURL } from 'node:url';
+
 
 const DEV_PASSWORD = process.env.SEED_PASSWORD || 'Gradebook-Dev-2026!';
 const SCHOOL = 'sch_saint_innocent';
@@ -59,6 +61,34 @@ items.push({
   name: 'Saint Innocent High School',
   country: 'KE',
   region: 'Nairobi',
+});
+
+items.push({
+  PK: pk(SCHOOL),
+  SK: 'ASSESSMENTCONFIG#SCHOOL',
+  entity: 'AssessmentConfig',
+  school_id: SCHOOL,
+  assessment_scheme: [
+    {
+      key: 'MIDTERM',
+      name: 'Midterm',
+      order: 1,
+      required: true,
+      result_role: 'CHECKPOINT',
+      risk_checkpoint: 'MIDTERM',
+    },
+    {
+      key: 'ENDTERM',
+      name: 'Endterm',
+      order: 2,
+      required: true,
+      result_role: 'CHECKPOINT',
+      risk_checkpoint: 'ENDTERM',
+    },
+  ],
+  _version: 1,
+  created_at: now,
+  updated_at: now,
 });
 
 const BANDS = [
@@ -349,12 +379,6 @@ for (const student of students) {
 function seedTestAssessmentsAndScores(enteredBy) {
   const checkpoints = [
     {
-      point: 'T1O',
-      term_id: 'term_2026_1',
-      assessment_type: 'OPENER',
-      title: 'Term 1 Opener',
-    },
-    {
       point: 'T1M',
       term_id: 'term_2026_1',
       assessment_type: 'MIDTERM',
@@ -414,7 +438,7 @@ function seedTestAssessmentsAndScores(enteredBy) {
         paper_no: 1,
         weight: 100,
         max_score: 100,
-        due_date: null,
+        due_date: checkpoint.due_date,
         score_count: TEST_STUDENTS.length,
         created_at: now,
         updated_at: now,

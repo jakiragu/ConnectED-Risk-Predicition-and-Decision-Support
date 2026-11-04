@@ -60,13 +60,18 @@ export const listStudents = async (schoolId, classId, { includeInactive = false 
 
 export const roster = (schoolId, classId) => listStudents(schoolId, classId);
 
-export async function setCheckpointWeights(schoolId, termId, weights, expectedVersion, actor) {
+/**
+ * Sets a term's checkpoint weights and whether it holds an Opener. Both share
+ * checkpoint_weights_version, so an End of term calculation notices either
+ * changing (resultsRepo.publish checks that version).
+ */
+export async function setCheckpointWeights(schoolId, termId, weights, expectedVersion, actor, { openerEnabled } = {}) {
   const res = await ddb.send(
     new UpdateCommand({
       TableName: TABLE,
       Key: { PK: pk(schoolId), SK: sk.gradeRule(termId) },
       UpdateExpression:
-        'SET checkpoint_weights = :w, #cv = if_not_exists(#cv, :zero) + :one, ' +
+        'SET checkpoint_weights = :w, opener_enabled = :oe, #cv = if_not_exists(#cv, :zero) + :one, ' +
         'checkpoint_weights_updated_at = :ts, checkpoint_weights_updated_by = :by',
       ConditionExpression:
         expectedVersion === 0
@@ -74,7 +79,7 @@ export async function setCheckpointWeights(schoolId, termId, weights, expectedVe
           : 'attribute_exists(PK) AND #cv = :exp',
       ExpressionAttributeNames: { '#cv': 'checkpoint_weights_version' },
       ExpressionAttributeValues: {
-        ':w': weights, ':zero': 0, ':one': 1, ':ts': new Date().toISOString(), ':by': actor.sub,
+        ':w': weights, ':oe': Boolean(openerEnabled), ':zero': 0, ':one': 1, ':ts': new Date().toISOString(), ':by': actor.sub,
         ...(expectedVersion === 0 ? {} : { ':exp': expectedVersion }),
       },
       ReturnValues: 'ALL_NEW',

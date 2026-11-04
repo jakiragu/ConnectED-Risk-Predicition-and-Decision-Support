@@ -9,7 +9,7 @@ import {
 import { ddb } from './client.js';
 import { TABLE, pk, sk } from './keys.js';
 import { termOpen } from './assessmentRepo.js';
-import { CHECKPOINT, PREVIOUS } from './results.js';
+import { CHECKPOINT, previousOf } from './results.js';
 
 const nowIso = () => new Date().toISOString();
 
@@ -163,7 +163,8 @@ export async function publish(schoolId, set, actor) {
   const now = Date.now();
   const scope = scopeOfSet(set);
   const final = set.checkpoint === CHECKPOINT.ENDTERM;
-  const previous = PREVIOUS[set.checkpoint];
+  // The order this result was calculated under: no Opener this term means Mid-term has no predecessor.
+  const previous = previousOf(set.checkpoint, set.basis_opener_enabled ?? true);
   const index = {};
   const items = [];
   const push = (name, item) => {

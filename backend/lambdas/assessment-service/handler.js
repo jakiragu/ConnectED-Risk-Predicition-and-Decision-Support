@@ -17,9 +17,22 @@ import {
   recordingStatus,
   maxScoreFrozen,
   weightUsed,
+  checkpointOf,
+  componentLabel,
+  componentTypeOf,
   TOTAL_WEIGHT,
   SUBJECTS,
 } from '../../library/assessment.js';
+import {
+  assessmentTypesFor,
+  defaultWeightProblems,
+  effectiveScheme,
+  labelsOf,
+  normalizeAssessmentScheme,
+  openerEnabledFor,
+  validateAssessmentScheme,
+} from '../../library/assessmentConfig.js';
+import * as assessmentConfig from '../../library/assessmentConfigRepo.js';
 import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import * as assessments from '../../library/assessmentRepo.js';
@@ -58,6 +71,10 @@ export async function handler(event) {
       return getClassRoster(actor, args);
     case 'listTerms':
       return listTerms(actor, args);
+    case 'getAssessmentConfig':
+      return getAssessmentConfig(actor, args);
+    case 'saveAssessmentConfig':
+      return saveAssessmentConfig(actor, input);
     default:
       throw notFound(`No handler for ${event.info.fieldName}`);
   }
@@ -69,7 +86,17 @@ const UNLOCK_TERM_LOCKED = 'Results for this term are published, so this assessm
 const UNLOCK_PUBLISHED =
   'Published results include this assessment, so it cannot be unlocked. Correcting published results is not available yet.';
 const isPublished = (a) => Boolean(a.published_in && [...a.published_in].length);
-const paperTaken = (a) => `${a.subject} ${a.assessment_type} already has a paper ${a.paper_no}`;
+const paperTaken = (a) => `${a.subject} ${a.assessment_type} already has ${componentLabel(a)} ${a.paper_no}`;
+
+/**
+ * The exams assessments may be created under in a term (Mid-term and End-term
+ * always; the Opener when the term holds one) and the school's names for them.
+ */
+async function termSetup(schoolId, termId) {
+  const [config, rule] = await Promise.all([assessmentConfig.get(schoolId), platform.gradeRule(schoolId, termId)]);
+  const openerEnabled = openerEnabledFor(rule, config);
+  return { assessmentTypes: assessmentTypesFor(openerEnabled), typeLabels: labelsOf(config), openerEnabled };
+}
 
 const decorate = (a, rosterSize) => ({
   ...a,
@@ -91,11 +118,18 @@ function assertCanSee(actor, a) {
 async function createAssessment(actor, input) {
   assertTenant(actor, input.school_id);
   assertSubjectWrite(actor, input.class_id, input.subject);
+
+  const { assessmentTypes, typeLabels } = await termSetup(input.school_id, input.term_id);
+
   if (await assessments.termLocked(input.school_id, input.term_id, input.class_id)) throw locked(TERM_LOCKED);
 
-  const candidate = { ...input, assessment_id: input.assessment_id || ulid() };
+  const candidate = {
+    ...input,
+    assessment_id: input.assessment_id || ulid(),
+    component_type: input.component_type || 'PAPER',
+  };
   const siblings = await assessments.listAllLive(input.school_id, input.class_id, input.term_id);
-  const errors = validateAssessment(candidate, { siblings });
+  const errors = validateAssessment(candidate, { siblings, assessmentTypes, typeLabels });
   if (errors.length) throw validation(errors[0].message, errors[0].field);
 
   const { item, created, problem } = await assessments.create(input.school_id, candidate, actor);
@@ -112,6 +146,7 @@ async function updateAssessment(actor, input) {
 
   const existing = await assessments.get(input.school_id, input.assessment_id);
   if (!existing || existing._deleted) throw notFound('Assessment not found');
+  const { assessmentTypes, typeLabels } = await termSetup(input.school_id, existing.term_id);
   assertCanSee(actor, existing);
   assertSubjectWrite(actor, existing.class_id, existing.subject);
   if (existing.status === 'LOCKED') throw locked('This assessment is locked');
@@ -123,6 +158,8 @@ async function updateAssessment(actor, input) {
     siblings,
     original: existing,
     scoreCount: existing.score_count || 0,
+    assessmentTypes,
+    typeLabels,
   });
   if (errors.length) throw validation(errors[0].message, errors[0].field);
 
@@ -134,6 +171,7 @@ async function updateAssessment(actor, input) {
       {
         title: input.title,
         assessment_type: input.assessment_type,
+        component_type: input.component_type,
         paper_no: input.paper_no,
         weight: input.weight,
         max_score: input.max_score,
@@ -246,6 +284,17 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
   const existing = await assessments.get(school_id, assessment_id);
   if (!existing) throw notFound('Assessment not found');
   if (!existing._deleted) return decorateOne(existing);
+
+  // An Opener paper cannot come back into a term that no longer holds an Opener.
+  const { assessmentTypes, typeLabels } = await termSetup(school_id, existing.term_id);
+  const checkpoint = checkpointOf(existing.assessment_type);
+  if (!assessmentTypes.includes(checkpoint)) {
+    throw validation(
+      `Cannot restore this assessment because the ${typeLabels[checkpoint] || existing.assessment_type} is not held this term.`,
+      'assessment_type'
+    );
+  }
+
   if (await assessments.termLocked(school_id, existing.term_id, existing.class_id)) throw locked(TERM_LOCKED);
 
   const siblings = await assessments.listAllLive(school_id, existing.class_id, existing.term_id);
@@ -258,8 +307,9 @@ async function restoreAssessment(actor, { school_id, assessment_id }) {
     );
   }
   if (existing.paper_no && siblings.some((s) => s.subject === existing.subject
-    && s.assessment_type === existing.assessment_type && s.paper_no === existing.paper_no)) {
-    throw validation(`${paperTaken(existing)}. Change that paper's number first.`, 'paper_no');
+    && checkpointOf(s.assessment_type) === checkpointOf(existing.assessment_type)
+    && componentTypeOf(s) === componentTypeOf(existing) && s.paper_no === existing.paper_no)) {
+    throw validation(`${paperTaken(existing)}. Change that component's number first.`, 'paper_no');
   }
 
   await scores.setDeletedAll(school_id, assessment_id, false, actor);
@@ -319,6 +369,52 @@ async function listMyClasses(actor, { school_id }) {
 async function listTerms(actor, { school_id }) {
   assertTenant(actor, school_id);
   return platform.listTerms(school_id);
+}
+
+const weightsIn = (w) =>
+  w ? { OPENER: Number(w.opener), MIDTERM: Number(w.midterm), ENDTERM: Number(w.endterm) } : null;
+const weightsOut = (w) =>
+  w ? { opener: w.OPENER ?? null, midterm: w.MIDTERM ?? null, endterm: w.ENDTERM ?? null } : null;
+
+/** Never missing: a school that has not saved a setup gets the defaults (version 0). */
+function configView(schoolId, config) {
+  return {
+    school_id: schoolId,
+    assessment_scheme: effectiveScheme(config),
+    default_checkpoint_weights: weightsOut(config?.default_checkpoint_weights),
+    updated_at: config?.updated_at ?? null,
+    updated_by: config?.updated_by ?? null,
+    _version: config?._version ?? 0,
+  };
+}
+
+async function getAssessmentConfig(actor, { school_id }) {
+  assertTenant(actor, school_id);
+  return configView(school_id, await assessmentConfig.get(school_id));
+}
+
+async function saveAssessmentConfig(actor, input) {
+  assertTenant(actor, input.school_id);
+  assertAdmin(actor);
+
+  const errors = validateAssessmentScheme(input.assessment_scheme);
+  if (errors.length) throw validation(errors[0], 'assessment_scheme');
+
+  const scheme = normalizeAssessmentScheme(input.assessment_scheme);
+  const defaultWeights = weightsIn(input.default_checkpoint_weights);
+  const weightErrors = defaultWeightProblems(defaultWeights, scheme);
+  if (weightErrors.length) throw validation(weightErrors[0], 'default_checkpoint_weights');
+
+  try {
+    const saved = await assessmentConfig.save(input.school_id, { scheme, defaultWeights }, input._version, actor);
+    return configView(input.school_id, saved);
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      throw conflict('The assessment configuration changed. Reload and try again.');
+    }
+
+    throw error;
+  }
 }
 
 async function getClassRoster(actor, { school_id, class_id }) {

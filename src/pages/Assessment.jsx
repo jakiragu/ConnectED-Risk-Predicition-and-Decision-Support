@@ -9,7 +9,7 @@ import {
   SOFT_DELETE_ASSESSMENT,
   UNLOCK_ASSESSMENT,
 } from '../api/operations.js';
-import { examTotals, TOTAL_WEIGHT } from '@gradebook/domain/assessment';
+import { checkpointOf, componentLabel, componentOrder, examTotals, TOTAL_WEIGHT } from '@gradebook/domain/assessment';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Select } from '../components/Field.jsx';
 import StatusPill from '../components/StatusPill.jsx';
@@ -20,9 +20,12 @@ import { watchClass } from '../offline/syncEngine.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
+import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 import { DangerButton, ActionIcon } from '../components/ui.jsx';
 
-const TYPE_ORDER = { Opener: 0, 'Mid-term': 1, 'End-term': 2 };
+/** Exam order; older rows store 'Mid-term', newer ones 'MIDTERM': both are the same exam. */
+const TYPE_ORDER = { OPENER: 0, MIDTERM: 1, ENDTERM: 2 };
+const orderOf = (type) => TYPE_ORDER[checkpointOf(type)] ?? 9;
 
 export default function Assessments() {
   const { actor } = useAuth();
@@ -31,6 +34,8 @@ export default function Assessments() {
   const classId = params.get('class') || '';
   const { terms, defaultTermId } = useTerms(actor.schoolId);
   const termId = params.get('term') || defaultTermId;
+  const setup = useCheckpointSetup(actor.schoolId, termId);
+  const examName = (type) => setup.label(checkpointOf(type)) || type;
   const subjectFilter = params.get('subject') || '';
   const typeFilter = params.get('type') || '';
   const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classId, term: termId, subject: subjectFilter, type: typeFilter, ...next }).filter(([, v]) => v)));
@@ -93,32 +98,35 @@ export default function Assessments() {
     }
   }
   function remove(a) {
-    if (window.confirm(`Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to the ${a.subject} ${a.assessment_type} exam.`)) {
+    if (window.confirm(`Delete "${a.title}"? This cannot be undone.\n\nIts ${a.weight}% goes back to the ${a.subject} ${examName(a.assessment_type)} exam.`)) {
       run(DELETE_ASSESSMENT, ref(a));
     }
   }
   function softRemove(a) {
     const message =
       `Delete "${a.title}" and its ${a.score_count} recorded mark${a.score_count === 1 ? '' : 's'}?\n\n` +
-      `It can be restored from "Deleted assessments" below. Its ${a.weight}% goes back to the ${a.subject} ${a.assessment_type} exam until then.`;
+      `It can be restored from "Deleted assessments" below. Its ${a.weight}% goes back to the ${a.subject} ${examName(a.assessment_type)} exam until then.`;
     if (window.confirm(message)) run(SOFT_DELETE_ASSESSMENT, ref(a));
   }
   const restore = (a) => run(RESTORE_ASSESSMENT, byId(a));
 
   // Filters: '' means all subjects / all exams.
-  const list = (assessments || []).filter((a) => (!subjectFilter || a.subject === subjectFilter) && (!typeFilter || a.assessment_type === typeFilter));
+  const list = (assessments || []).filter((a) => (!subjectFilter || a.subject === subjectFilter)
+    && (!typeFilter || checkpointOf(a.assessment_type) === typeFilter));
   const subjectsHere = [...new Set((assessments || []).map((a) => a.subject))].sort();
-  const typesHere = [...new Set((assessments || []).map((a) => a.assessment_type))];
+  const typesHere = [...new Set((assessments || []).map((a) => checkpointOf(a.assessment_type)))]
+    .sort((a, b) => orderOf(a) - orderOf(b))
+    .map((c) => ({ value: c, label: examName(c) }));
   const sorted = useMemo(
     () => [...list].sort((a, b) => a.subject.localeCompare(b.subject)
-      || (TYPE_ORDER[a.assessment_type] ?? 9) - (TYPE_ORDER[b.assessment_type] ?? 9)
-      || (a.paper_no ?? 9) - (b.paper_no ?? 9)),
+      || orderOf(a.assessment_type) - orderOf(b.assessment_type)
+      || componentOrder(a) - componentOrder(b)),
     [list]
   );
   // Each subject's papers in each checkpoint must total 100% before that checkpoint can be published.
   const budgets = useMemo(
     () => examTotals(list)
-      .sort((a, b) => a.subject.localeCompare(b.subject) || TYPE_ORDER[a.assessment_type] - TYPE_ORDER[b.assessment_type])
+      .sort((a, b) => a.subject.localeCompare(b.subject) || orderOf(a.assessment_type) - orderOf(b.assessment_type))
       .map((t) => ({ ...t, remaining: TOTAL_WEIGHT - t.weight })),
     [list]
   );
@@ -127,7 +135,7 @@ export default function Assessments() {
   const klass = classes.find((c) => c.class_id === classId);
   const className = klass?.name;
   // Papers of subjects this user teaches here can be edited and marked; the rest are view-only.
-  const canWrite = (a) => isAdmin || (klass?.my_subjects || []).includes(a.subject);
+  const canWrite = (a) => isAdmin || klass?.is_class_teacher || (klass?.my_subjects || []).includes(a.subject);
 
   return (
     <>
@@ -160,14 +168,14 @@ export default function Assessments() {
 
       {error && <div className="card error-card">{error}</div>}
 
-      {termId && <CheckpointWeights schoolId={actor.schoolId} termId={termId} online={online} />}
+      {termId && <CheckpointWeights schoolId={actor.schoolId} termId={termId} online={online} onChanged={() => setup.reload()} />}
 
       {budgets.length > 0 && (
         <div className="budget-row">
           {incompleteBudgets.length > 0 ? (
             incompleteBudgets.map((b) => (
               <span key={`${b.subject}|${b.assessment_type}`} className="budget warn">
-                {b.subject} {b.assessment_type}: <b>{b.remaining}%</b> unassigned
+                {b.subject} {examName(b.assessment_type)}: <b>{b.remaining}%</b> unassigned
               </span>
             ))
           ) : (
@@ -182,7 +190,7 @@ export default function Assessments() {
         <table>
           <thead>
             <tr>
-              <th>Name</th><th>Subject</th><th>Checkpoint</th><th>Paper</th><th>Weight</th>
+              <th>Name</th><th>Subject</th><th>Exam</th><th>Component</th><th>Weight</th>
               <th>Out of</th><th>Marks</th><th>Due</th><th>Status</th><th>Action</th>
             </tr>
           </thead>
@@ -200,8 +208,8 @@ export default function Assessments() {
               <tr key={a.assessment_id}>
                 <td>{a.title}</td>
                 <td>{a.subject}</td>
-                <td>{a.assessment_type}</td>
-                <td>{a.paper_no ? `Paper ${a.paper_no}` : '—'}</td>
+                <td>{examName(a.assessment_type)}</td>
+                <td>{a.paper_no ? `${componentLabel(a)} ${a.paper_no}` : '—'}</td>
                 <td>{a.weight}%</td>
                 <td>{a.max_score}</td>
                 <td>{a.score_count}</td>
@@ -305,7 +313,7 @@ export default function Assessments() {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Subject</th><th>Checkpoint</th><th>Paper</th><th>Weight</th><th>Marks</th><th>Deleted</th><th>Action</th>
+                  <th>Name</th><th>Subject</th><th>Exam</th><th>Component</th><th>Weight</th><th>Marks</th><th>Deleted</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -313,8 +321,8 @@ export default function Assessments() {
                   <tr key={a.assessment_id}>
                     <td>{a.title}</td>
                     <td>{a.subject}</td>
-                    <td>{a.assessment_type}</td>
-                    <td>{a.paper_no ? `Paper ${a.paper_no}` : '—'}</td>
+                    <td>{examName(a.assessment_type)}</td>
+                    <td>{a.paper_no ? `${componentLabel(a)} ${a.paper_no}` : '—'}</td>
                     <td>{a.weight}%</td>
                     <td>{a.score_count}</td>
                     <td>{a.deleted_at ? new Date(a.deleted_at).toLocaleString() : '—'}</td>

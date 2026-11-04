@@ -5,6 +5,7 @@ import {
   assertCanPublish,
   assertGradebookRole,
   canReviewResults,
+  isAdmin,
   readableClassIds,
   visibleSubjects,
 } from '../../library/authz.js';
@@ -14,7 +15,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, s3 } from '../../library/client.js';
 import { TABLE, pk, sk } from '../../library/keys.js';
-import { validation, notFound, locked, conflict } from '../../library/errors.js';
+import { validation, notFound, locked, conflict, forbidden } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import {
   calculateCheckpoint,
@@ -22,12 +23,14 @@ import {
   resultsPublishedEvent,
   CHECKPOINT,
   CHECKPOINTS,
-  CHECKPOINT_LABEL,
   assessmentCheckpoint,
-  PREVIOUS,
+  labelOf,
+  previousOf,
   SEVERITY,
   kindOf,
 } from '../../library/results.js';
+import { labelsOf, openerEnabledFor } from '../../library/assessmentConfig.js';
+import * as assessmentConfig from '../../library/assessmentConfigRepo.js';
 import { emit } from '../../library/events.js';
 import { startReportCards, executionName } from '../../library/workflow.js';
 import * as results from '../../library/resultsRepo.js';
@@ -78,8 +81,36 @@ const MARKS_MOVED = 'Marks or papers changed after these results were calculated
 const STALE_PUBLISHED = 'These results were published from a different calculation than the one you reviewed.';
 const WEIGHTS_MOVED = 'Checkpoint weights changed after these results were calculated. Recalculate and review again.';
 const WEIGHTS_LOCKED = 'End of term results are published for this term, so checkpoint weights can no longer change.';
-const notYet = (checkpoint) =>
-  `${CHECKPOINT_LABEL[PREVIOUS[checkpoint]]} results must be published before ${CHECKPOINT_LABEL[checkpoint]} results`;
+const SETUP_MOVED = 'Whether this term holds an Opener changed after these results were calculated. Recalculate and review again.';
+const notYet = (checkpoint, openerEnabled, labels) =>
+  `${labelOf(previousOf(checkpoint, openerEnabled), labels)} results must be published before ${labelOf(checkpoint, labels)} results`;
+
+/**
+ * How this term is set up: its grading rule, whether it holds an Opener (the
+ * term's own setting, else the school default) and the school's checkpoint names.
+ */
+async function termSetup(schoolId, termId) {
+  const [rule, config] = await Promise.all([platform.gradeRule(schoolId, termId), assessmentConfig.get(schoolId)]);
+  return { rule, config, openerEnabled: openerEnabledFor(rule, config), labels: labelsOf(config) };
+}
+
+/**
+ * Why the term's Opener setting cannot change to `enable`, or null. Adding an
+ * Opener after Mid-term results are out would break the publication order;
+ * removing one whose results are out would orphan them.
+ */
+async function openerChangeBlocked(schoolId, termId, enable, labels) {
+  const sets = await results.listSetsForTerm(schoolId, termId);
+  const published = (c) => sets.some((x) => x.checkpoint === c && x.status === results.STATUS.PUBLISHED);
+  if (enable && (published(CHECKPOINT.MIDTERM) || published(CHECKPOINT.ENDTERM))) {
+    return `${labelOf(CHECKPOINT.MIDTERM, labels)} results are already published this term, ` +
+      `so the ${labelOf(CHECKPOINT.OPENER, labels)} can no longer be added.`;
+  }
+  if (!enable && published(CHECKPOINT.OPENER)) {
+    return `${labelOf(CHECKPOINT.OPENER, labels)} results are already published this term, so it can no longer be removed.`;
+  }
+  return null;
+}
 
 const log = (o) => console.log(JSON.stringify({ level: 'info', svc: 'results-service', ...o }));
 
@@ -161,11 +192,12 @@ async function calculateTermResults(actor, input) {
   const existing = await results.getSet(schoolId, scope);
   if (existing?.status === results.STATUS.PUBLISHED) throw locked(ALREADY_PUBLISHED);
 
-  const [live, roster, gradeRule] = await Promise.all([
+  const [live, roster, setup] = await Promise.all([
     assessments.listAllLive(schoolId, scope.classId, scope.termId),
     platform.roster(schoolId, scope.classId),
-    platform.gradeRule(schoolId, scope.termId),
+    termSetup(schoolId, scope.termId),
   ]);
+  const { rule: gradeRule, openerEnabled, labels } = setup;
   const scoresByAssessment = new Map(
     await Promise.all(
       live.filter((a) => assessmentCheckpoint(a.assessment_type) === scope.checkpoint)
@@ -173,12 +205,13 @@ async function calculateTermResults(actor, input) {
     )
   );
 
-  const previous = PREVIOUS[scope.checkpoint];
+  const previous = previousOf(scope.checkpoint, openerEnabled);
   const prior = previous ? await publishedRows(schoolId, scope, previous) : null;
   const previousRows = {};
-  const extra = {};
+  // The setup this result is calculated under, kept with it: publication checks it and report cards print it.
+  const extra = { basis_opener_enabled: openerEnabled, basis_labels: labels };
   if (scope.checkpoint === CHECKPOINT.ENDTERM) {
-    const opener = await publishedRows(schoolId, scope, CHECKPOINT.OPENER);
+    const opener = openerEnabled ? await publishedRows(schoolId, scope, CHECKPOINT.OPENER) : null;
     if (opener) previousRows.OPENER = opener.rows;
     if (prior) previousRows.MIDTERM = prior.rows;
     extra.basis_previous = { OPENER: opener?.set.calculation_id ?? null, MIDTERM: prior?.set.calculation_id ?? null };
@@ -194,6 +227,8 @@ async function calculateTermResults(actor, input) {
     gradeRule,
     previousPublished: Boolean(prior),
     previousRows,
+    openerEnabled,
+    labels,
   });
 
   let saved;
@@ -277,7 +312,8 @@ async function publishResults(actor, input) {
   await requireClass(actor, schoolId, scope.classId);
 
   const set = await results.getSet(schoolId, scope);
-  if (!set) throw notFound(`Calculate the ${CHECKPOINT_LABEL[scope.checkpoint]} results before publishing them`);
+  const { rule, openerEnabled, labels } = await termSetup(schoolId, scope.termId);
+  if (!set) throw notFound(`Calculate the ${labelOf(scope.checkpoint, labels)} results before publishing them`);
 
   if (set.status === results.STATUS.PUBLISHED) {
     if (input._version !== set.published_from_version) throw conflict(STALE_PUBLISHED);
@@ -288,14 +324,15 @@ async function publishResults(actor, input) {
     const first = set.issues.find((i) => i.severity === SEVERITY.BLOCKING);
     throw validation(`Cannot publish: ${first?.message || 'the calculation has blocking problems'}`, 'checkpoint');
   }
-  const previous = PREVIOUS[scope.checkpoint];
+  if ((set.basis_opener_enabled ?? true) !== openerEnabled) throw conflict(SETUP_MOVED);
+  const previous = previousOf(scope.checkpoint, openerEnabled);
   if (previous && (await results.getSet(schoolId, { ...scope, checkpoint: previous }))?.status !== results.STATUS.PUBLISHED) {
-    throw validation(notYet(scope.checkpoint), 'checkpoint');
+    throw validation(notYet(scope.checkpoint, openerEnabled, labels), 'checkpoint');
   }
   if (scope.checkpoint === CHECKPOINT.ENDTERM) {
-    const rule = await platform.gradeRule(schoolId, scope.termId);
-    if (checkpointWeightProblems(rule?.checkpoint_weights).length) {
-      throw validation(`Cannot publish: ${checkpointWeightProblems(rule?.checkpoint_weights)[0]}`, 'checkpoint');
+    const weightProblems = checkpointWeightProblems(rule?.checkpoint_weights, { openerEnabled, labels });
+    if (weightProblems.length) {
+      throw validation(`Cannot publish: ${weightProblems[0]}`, 'checkpoint');
     }
     if ((rule.checkpoint_weights_version ?? 0) !== set.basis_weights_version) throw conflict(WEIGHTS_MOVED);
   }
@@ -317,7 +354,9 @@ async function publishResults(actor, input) {
       throw conflict(STALE);
     }
     if (failed('gate')) throw locked(TERM_LOCKED);
-    if (e.publishIndex.previous !== undefined && failed('previous')) throw validation(notYet(scope.checkpoint), 'checkpoint');
+    if (e.publishIndex.previous !== undefined && failed('previous')) {
+      throw validation(notYet(scope.checkpoint, set.basis_opener_enabled ?? true, labels), 'checkpoint');
+    }
     if (e.publishIndex.weights !== undefined && failed('weights')) throw conflict(WEIGHTS_MOVED);
     if ((e.CancellationReasons || []).slice(e.publishIndex.papers).some((r) => r?.Code === 'ConditionalCheckFailed')) {
       throw conflict(MARKS_MOVED);
@@ -426,31 +465,47 @@ async function finalPublishedInTerm(schoolId, termId) {
 async function getGradeRule(actor, { school_id, term_id }) {
   assertTenant(actor, school_id);
   assertGradebookRole(actor);
-  const rule = await platform.gradeRule(school_id, term_id);
+  const { rule, openerEnabled, labels } = await termSetup(school_id, term_id);
   if (!rule) return null;
   return {
     term_id,
     pass_mark: rule.pass_mark ?? null,
     missing_score_policy: rule.missing_score_policy ?? null,
     bands: rule.bands || [],
+    opener_enabled: openerEnabled,
+    opener_locked_reason: await openerChangeBlocked(school_id, term_id, !openerEnabled, labels),
     checkpoint_weights: weightsView(rule.checkpoint_weights),
     checkpoint_weights_version: rule.checkpoint_weights_version ?? 0,
-    checkpoint_weights_problems: checkpointWeightProblems(rule.checkpoint_weights),
+    checkpoint_weights_problems: checkpointWeightProblems(rule.checkpoint_weights, { openerEnabled, labels }),
     checkpoint_weights_locked: await finalPublishedInTerm(school_id, term_id),
   };
 }
 
+/**
+ * Sets the term's checkpoint weights and, optionally, whether it holds an
+ * Opener. Any gradebook role may set weights; only an administrator may add or
+ * remove the Opener, and not once results that depend on it are published.
+ */
 async function setCheckpointWeights(actor, input) {
   assertTenant(actor, input.school_id);
   assertGradebookRole(actor);
   await requireTerm(input.school_id, input.term_id);
+  const { rule, openerEnabled: current, labels } = await termSetup(input.school_id, input.term_id);
+  if (!rule) throw notFound('No grading rule is set for this term');
+
+  const openerEnabled = typeof input.opener_enabled === 'boolean' ? input.opener_enabled : current;
+  if (openerEnabled !== current) {
+    if (!isAdmin(actor)) throw forbidden('Only an administrator can change whether this term holds an Opener');
+    const blocked = await openerChangeBlocked(input.school_id, input.term_id, openerEnabled, labels);
+    if (blocked) throw locked(blocked);
+  }
+
   const weights = { OPENER: Number(input.opener), MIDTERM: Number(input.midterm), ENDTERM: Number(input.endterm) };
-  const problems = checkpointWeightProblems(weights);
+  const problems = checkpointWeightProblems(weights, { openerEnabled, labels });
   if (problems.length) throw validation(problems[0], 'checkpoint_weights');
-  if (!(await platform.gradeRule(input.school_id, input.term_id))) throw notFound('No grading rule is set for this term');
   if (await finalPublishedInTerm(input.school_id, input.term_id)) throw locked(WEIGHTS_LOCKED);
   try {
-    await platform.setCheckpointWeights(input.school_id, input.term_id, weights, input._version ?? 0, actor);
+    await platform.setCheckpointWeights(input.school_id, input.term_id, weights, input._version ?? 0, actor, { openerEnabled });
   } catch (e) {
     if (e.name !== 'ConditionalCheckFailedException') throw e;
     throw conflict('Someone else changed the checkpoint weights. Reload and try again.');

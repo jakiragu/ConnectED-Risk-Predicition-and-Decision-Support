@@ -36,7 +36,8 @@ export async function generateOne(event) {
   if (current.calculation_id !== calculation_id) throw validation('These results were superseded');
 
   const entries = [];
-  for (const c of checkpointsUpTo(checkpoint)) {
+  // Only the checkpoints this term held when the result was calculated: no Opener means the card starts at Mid-term.
+  for (const c of checkpointsUpTo(checkpoint, current.basis_opener_enabled ?? true)) {
     const set = c === checkpoint ? current : await publishedSet(event, c);
     const row = await results.getRow(school_id, set, student_id);
     if (row) entries.push({ set, row });

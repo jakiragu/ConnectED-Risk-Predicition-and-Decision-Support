@@ -5,6 +5,7 @@ import { CREATE_TERM, LIST_TERMS_FULL, UPDATE_TERM } from '../api/calendarOperat
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Offline, DangerButton, ActionIcon } from '../components/ui.jsx';
 import { Field, Select } from '../components/Field.jsx';
+import AssessmentSetup from '../components/AssessmentSetup.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
 
@@ -160,6 +161,8 @@ export default function Terms() {
       {notice && <div className="notice">{notice}</div>}
 
       {editing && <TermEditor term={editing} siblings={terms} busy={busy} onSave={save} onCancel={() => setEditing(null)} />}
+
+      {!editing && <AssessmentSetup schoolId={actor.schoolId} />}
 
       {years.map((year) => (
         <div key={year} className="stack">

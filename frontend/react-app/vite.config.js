@@ -10,5 +10,9 @@ export default defineConfig({
   plugins: [react()],
   resolve: { alias: { '/src': appSource } },
   server: { port: 5173 },
-  optimizeDeps: { include: ['@gradebook/domain/assessment', '@gradebook/domain/score', '@gradebook/domain/conflict', '@gradebook/domain/ids', '@gradebook/domain/results', '@gradebook/domain/calendar', '@gradebook/domain/attendance', '@gradebook/domain/explanations', '@gradebook/domain/targets', '@gradebook/domain/decision'] },
+  // @gradebook/domain (backend/library) is linked as a workspace and is plain
+  // ES modules with no dependencies, so Vite serves it as source. Do not add it
+  // to optimizeDeps.include: Vite would then keep a pre-bundled copy in
+  // node_modules/.vite that it never refreshes when the library changes, and a
+  // page importing a newly added export would fail to load (blank screen).
 });

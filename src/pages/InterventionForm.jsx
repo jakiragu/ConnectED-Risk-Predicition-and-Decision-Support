@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { todayIn } from '@gradebook/domain/calendar';
-import { FREQUENCIES, FREQUENCY_LABEL, INTERVENTION_STATUS, validateIntervention } from '@gradebook/domain/decision';
+import { FREQUENCY_LABEL, INTERVENTION_STATUS, methodKey, validateIntervention } from '@gradebook/domain/decision';
 import { ulid } from '@gradebook/domain/ids';
 import { targetText } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -9,7 +9,8 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
-import { DangerButton } from '../components/ui.jsx';
+import { InterventionEditor as Editor, MethodSuggestions } from '../components/InterventionEditor.jsx';
+import { ActionIcon, DangerButton } from '../components/ui.jsx';
 
 const today = () => todayIn('Africa/Nairobi');
 const blank = (factor) => ({ factor, method: '', frequency: 'WEEKLY', started_on: today(), expected_outcome: '', notes: '' });
@@ -36,38 +37,6 @@ function SyncState({ i, onDiscard }) {
   return null;
 }
 
-function Editor({ value, onChange, factors, idPrefix }) {
-  const set = (k) => (e) => onChange({ ...value, [k]: e.target.value });
-  return (
-    <div className="editor">
-      {factors && (
-        <label htmlFor={`${idPrefix}-factor`}>For
-          <select id={`${idPrefix}-factor`} value={value.factor} onChange={set('factor')}>
-            {factors.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
-        </label>
-      )}
-      <label htmlFor={`${idPrefix}-method`} className="wide">What will be done
-        <input id={`${idPrefix}-method`} value={value.method} onChange={set('method')} maxLength={200} placeholder="For example: weekly past papers, marked on Fridays" />
-      </label>
-      <label htmlFor={`${idPrefix}-frequency`}>How often
-        <select id={`${idPrefix}-frequency`} value={value.frequency} onChange={set('frequency')}>
-          {FREQUENCIES.map((f) => <option key={f} value={f}>{FREQUENCY_LABEL[f]}</option>)}
-        </select>
-      </label>
-      <label htmlFor={`${idPrefix}-start`}>Starts
-        <input id={`${idPrefix}-start`} type="date" value={value.started_on} onChange={set('started_on')} />
-      </label>
-      <label htmlFor={`${idPrefix}-expected`} className="wide">Expected outcome (optional)
-        <input id={`${idPrefix}-expected`} value={value.expected_outcome ?? ''} onChange={set('expected_outcome')} maxLength={1000} />
-      </label>
-      <label htmlFor={`${idPrefix}-notes`} className="wide">Notes (optional)
-        <textarea id={`${idPrefix}-notes`} rows={2} value={value.notes ?? ''} onChange={set('notes')} maxLength={1000} />
-      </label>
-    </div>
-  );
-}
-
 /**
  * Recording what a teacher decided to do for a student (FR-12): add, edit,
  * stop, restart and delete interventions, by subject or attendance. Works
@@ -86,6 +55,7 @@ export default function InterventionForm() {
   const [editing, setEditing] = useState(null);
   const [methods, setMethods] = useState([]);
   const [search, setSearch] = useState('');
+  const methodRef = useRef(null);
   const items = useLive(() => db().interventions.where('student_id').equals(studentId).toArray(), [studentId], []);
 
   useEffect(() => {
@@ -126,6 +96,12 @@ export default function InterventionForm() {
 
   async function add(e) {
     e.preventDefault();
+    const duplicate = visible.some((i) => i.status === INTERVENTION_STATUS.ONGOING && i._pending !== 'DELETE'
+      && i.factor === draft.factor && methodKey(i.method) === methodKey(draft.method));
+    if (duplicate) {
+      setError(`${profile.student.first_name} already has this under way for ${draft.factor}. Edit that one instead of adding it again.`);
+      return;
+    }
     const ok = await save(inputOf(actor.schoolId, studentId, { ...draft, intervention_id: ulid(), status: INTERVENTION_STATUS.ONGOING }));
     if (ok) setDraft(blank(draft.factor));
   }
@@ -142,7 +118,9 @@ export default function InterventionForm() {
   if (error && !profile) return <div className="stack"><Link to="/dashboard">Back</Link><div className="notice">{error}</div></div>;
   if (!profile || !draft) return <div className="hint">Loading…</div>;
   const target = profile.targets?.options?.[0]?.changes ?? [];
-  const shownMethods = methods.filter((m) => !search || m.method.toLowerCase().includes(search.toLowerCase()));
+  // Methods this student already has under way for the chosen subject: shown as ongoing, not offered again.
+  const ongoingKeys = new Set(visible.filter((i) => i.status === INTERVENTION_STATUS.ONGOING && i.factor === draft.factor && i._pending !== 'DELETE').map((i) => methodKey(i.method)));
+  const use = (method) => { setDraft({ ...draft, method }); methodRef.current?.focus(); };
 
   const row = (i, actions) => (
     <li key={i.intervention_id} className={`intervention ${i._pending === 'DELETE' ? 'removed' : ''}`}>
@@ -189,7 +167,7 @@ export default function InterventionForm() {
 
           <form className="card stack" onSubmit={add}>
             <h2>Add an intervention</h2>
-            <Editor value={draft} onChange={setDraft} factors={factors} idPrefix="new" />
+            <Editor value={draft} onChange={setDraft} factors={factors} idPrefix="new" methodRef={methodRef} />
             {error && <div className="warn" role="alert">{error}</div>}
             <div className="actions">
               <button type="submit" className="btn primary">Save intervention</button>
@@ -206,9 +184,13 @@ export default function InterventionForm() {
                 <ul className="plain">
                   {list.map((i) => row(i, (
                     <>
-                      <button type="button" className="btn link" onClick={() => setEditing({ id: i.intervention_id, value: { ...i } })}>Edit</button>
-                      <button type="button" className="btn link" onClick={() => stop(i)}>Stop</button>
-                      <DangerButton onClick={() => remove(i)}>Delete</DangerButton>
+                      <button type="button" className="btn secondary small icon-text" onClick={() => setEditing({ id: i.intervention_id, value: { ...i } })}
+                        aria-label={`Edit “${i.method}”`}><ActionIcon name="edit" />Edit</button>
+                      <button type="button" className="btn secondary small icon-text" onClick={() => stop(i)}
+                        aria-label={`Stop “${i.method}”`}><ActionIcon name="stop" />Stop</button>
+                      <DangerButton className="small icon-text" onClick={() => remove(i)} aria-label={`Delete “${i.method}”`}>
+                        <ActionIcon name="trash" />Delete
+                      </DangerButton>
                     </>
                   )))}
                 </ul>
@@ -225,8 +207,11 @@ export default function InterventionForm() {
                 <ul className="plain">
                   {list.map((i) => row(i, (
                     <>
-                      <button type="button" className="btn link" onClick={() => restart(i)}>Restart</button>
-                      <DangerButton onClick={() => remove(i)}>Delete</DangerButton>
+                      <button type="button" className="btn secondary small icon-text" onClick={() => restart(i)}
+                        aria-label={`Restart “${i.method}”`}><ActionIcon name="restore" />Restart</button>
+                      <DangerButton className="small icon-text" onClick={() => remove(i)} aria-label={`Delete “${i.method}”`}>
+                        <ActionIcon name="trash" />Delete
+                      </DangerButton>
                     </>
                   )))}
                 </ul>
@@ -235,19 +220,8 @@ export default function InterventionForm() {
           </section>
         </div>
 
-        <aside className="card stack suggestions">
-          <h2>Used by teachers for {draft.factor}</h2>
-          <input type="search" aria-label="Search suggestions" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-          {shownMethods.length === 0 && <div className="hint">No interventions recorded for {draft.factor} yet.</div>}
-          <ul className="plain">
-            {shownMethods.map((m) => (
-              <li key={m.method} className="suggestion">
-                <span>{m.method}<span className="hint"> · {m.teachers_used} teacher{m.teachers_used === 1 ? '' : 's'}</span></span>
-                <button type="button" className="btn link" aria-label={`Use "${m.method}"`} onClick={() => setDraft({ ...draft, method: m.method })}>+</button>
-              </li>
-            ))}
-          </ul>
-        </aside>
+        <MethodSuggestions factor={draft.factor} methods={methods} search={search} onSearch={setSearch}
+          current={draft.method} onUse={use} ongoing={ongoingKeys} />
       </div>
     </div>
   );

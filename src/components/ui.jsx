@@ -82,10 +82,19 @@ export function ActionIcon({ name }) {
         <path d="M8 10V7a4 4 0 0 1 8 0v3" />
       </>
     ),
+    plus: (
+      <path d="M12 5v14M5 12h14" />
+    ),
     restore: (
       <>
         <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
         <path d="M3 3v5h5M12 7v5l3 2" />
+      </>
+    ),
+    stop: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <rect x="9" y="9" width="6" height="6" rx="1" />
       </>
     ),
     trash: (

@@ -1,16 +1,43 @@
 import { MARK } from './score.js';
-import { TOTAL_WEIGHT } from './assessment.js';
+import { TOTAL_WEIGHT, checkpointOf, componentOrder } from './assessment.js';
 
-
+/**
+ * The three checkpoints are fixed: the risk models are trained on Mid-term and
+ * End-term, and the term result combines exactly these. What a school may
+ * change: whether the Opener is held in a term (per term, on its GradeRule),
+ * what each checkpoint is called (school setting, see assessmentConfig.js), and
+ * what each checkpoint's exam is made of (components, see assessment.js).
+ */
 export const CHECKPOINT = { OPENER: 'OPENER', MIDTERM: 'MIDTERM', ENDTERM: 'ENDTERM' };
 export const CHECKPOINTS = [CHECKPOINT.OPENER, CHECKPOINT.MIDTERM, CHECKPOINT.ENDTERM];
+export const OPTIONAL_CHECKPOINTS = [CHECKPOINT.OPENER];
 export const CHECKPOINT_LABEL = { OPENER: 'Opener', MIDTERM: 'Mid-term', ENDTERM: 'End of term' };
 export const CHECKPOINT_TYPE = { OPENER: 'Opener', MIDTERM: 'Mid-term', ENDTERM: 'End-term' };
-export const PREVIOUS = { OPENER: null, MIDTERM: CHECKPOINT.OPENER, ENDTERM: CHECKPOINT.MIDTERM };
-export const checkpointsUpTo = (checkpoint) => CHECKPOINTS.slice(0, CHECKPOINTS.indexOf(checkpoint) + 1);
 
-export const assessmentCheckpoint = (assessmentType) =>
-  String(assessmentType || '').toUpperCase().replace(/[^A-Z]/g, '');
+/** The checkpoints held in a term, in order. */
+export const checkpointsFor = (openerEnabled = true) =>
+  CHECKPOINTS.filter((c) => openerEnabled || c !== CHECKPOINT.OPENER);
+
+/** The checkpoint that must be published before this one, or null. */
+export function previousOf(checkpoint, openerEnabled = true) {
+  const held = checkpointsFor(openerEnabled);
+  const i = held.indexOf(checkpoint);
+  return i > 0 ? held[i - 1] : null;
+}
+
+/** Kept for callers that predate the optional Opener: the order when every checkpoint is held. */
+export const PREVIOUS = { OPENER: null, MIDTERM: CHECKPOINT.OPENER, ENDTERM: CHECKPOINT.MIDTERM };
+
+export const checkpointsUpTo = (checkpoint, openerEnabled = true) => {
+  const held = checkpointsFor(openerEnabled);
+  return held.slice(0, held.indexOf(checkpoint) + 1);
+};
+
+/** A school's name for a checkpoint, else the default. */
+export const labelOf = (checkpoint, labels = null) => labels?.[checkpoint] || CHECKPOINT_LABEL[checkpoint] || checkpoint;
+
+/** The checkpoint an assessment belongs to: 'Mid-term' (older rows) and 'MIDTERM' are the same. */
+export const assessmentCheckpoint = checkpointOf;
 
 export const RESULT_KIND = { INTERIM: 'INTERIM', FINAL: 'FINAL' };
 export const kindOf = (checkpoint) => (checkpoint === CHECKPOINT.ENDTERM ? RESULT_KIND.FINAL : RESULT_KIND.INTERIM);
@@ -52,12 +79,20 @@ export function gradeFor(score, bands) {
   return bands.find((b) => whole >= b.min_score && whole <= b.max_score)?.grade ?? null;
 }
 
-/** Checkpoint weights decide how much each checkpoint exam counts towards the term result. */
-export function checkpointWeightProblems(weights) {
+/**
+ * Checkpoint weights decide how much each checkpoint exam counts towards the
+ * term result. An Opener that is held may still weigh 0: it is then published
+ * and shown on report cards but does not count (a diagnostic Opener). An
+ * Opener that is not held must weigh 0.
+ */
+export function checkpointWeightProblems(weights, { openerEnabled = true, labels = null } = {}) {
   if (!weights) return ['Checkpoint weights have not been set for this term'];
   const values = CHECKPOINTS.map((c) => weights[c]);
   if (values.some((v) => !Number.isFinite(v) || v < 0 || v > TOTAL_WEIGHT)) {
     return [`Each checkpoint weight must be between 0 and ${TOTAL_WEIGHT}`];
+  }
+  if (!openerEnabled && weights.OPENER !== 0) {
+    return [`The ${labelOf(CHECKPOINT.OPENER, labels)} is not held this term, so its weight must be 0%`];
   }
   const total = roundHalfUp(values.reduce((t, v) => t + v, 0), 2);
   if (!near(total, TOTAL_WEIGHT)) return [`Checkpoint weights add up to ${total}%. They must total ${TOTAL_WEIGHT}%.`];
@@ -66,14 +101,17 @@ export function checkpointWeightProblems(weights) {
 
 const issue = (severity, code, message, extra = {}) => ({ severity, code, message, ...extra });
 
-function checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPublished }) {
+function checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPublished, openerEnabled, labels }) {
   const out = [];
   const block = (code, message, extra) => out.push(issue(SEVERITY.BLOCKING, code, message, extra));
 
-  const previous = PREVIOUS[checkpoint];
+  if (!checkpointsFor(openerEnabled).includes(checkpoint)) {
+    block('CHECKPOINT_NOT_HELD', `The ${labelOf(checkpoint, labels)} is not held this term`);
+  }
+  const previous = previousOf(checkpoint, openerEnabled);
   if (previous && !previousPublished) {
     block('PREVIOUS_NOT_PUBLISHED',
-      `${CHECKPOINT_LABEL[previous]} results must be published before ${CHECKPOINT_LABEL[checkpoint]} results`);
+      `${labelOf(previous, labels)} results must be published before ${labelOf(checkpoint, labels)} results`);
   }
   if (!gradeRule) {
     block('RULE_MISSING', 'No grading rule is set for this term');
@@ -83,11 +121,13 @@ function checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPu
     }
     if (checkpoint === CHECKPOINT.ENDTERM) {
       for (const p of bandProblems(gradeRule.bands)) block('RULE_INVALID_BANDS', p);
-      for (const p of checkpointWeightProblems(gradeRule.checkpoint_weights)) block('CHECKPOINT_WEIGHTS_INVALID', p);
+      for (const p of checkpointWeightProblems(gradeRule.checkpoint_weights, { openerEnabled, labels })) {
+        block('CHECKPOINT_WEIGHTS_INVALID', p);
+      }
     }
   }
   if (!roster.length) block('NO_STUDENTS', 'No students are enrolled in this class');
-  if (!inScope.length) block('NO_ASSESSMENTS', `There are no ${CHECKPOINT_TYPE[checkpoint]} papers to calculate`);
+  if (!inScope.length) block('NO_ASSESSMENTS', `There are no ${labelOf(checkpoint, labels)} papers or components to calculate`);
 
   for (const a of inScope) {
     if (!(Number.isFinite(a.max_score) && a.max_score > 0)) {
@@ -104,7 +144,7 @@ function checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPu
     const t = roundHalfUp(total, 2);
     if (!near(t, TOTAL_WEIGHT)) {
       block('PAPER_WEIGHTS_INVALID',
-        `${subject} ${CHECKPOINT_TYPE[checkpoint]} papers add up to ${t}%. They must total ${TOTAL_WEIGHT}%.`, { subject });
+        `${subject} ${labelOf(checkpoint, labels)} components add up to ${t}%. They must total ${TOTAL_WEIGHT}%.`, { subject });
     }
   }
   return out;
@@ -120,6 +160,7 @@ function paperLine(a, row) {
       assessment_id: a.assessment_id,
       title: a.title,
       paper_no: a.paper_no ?? null,
+      component_type: a.component_type ?? null,
       max_score: a.max_score,
       weight: a.weight,
       mark_status: status,
@@ -150,23 +191,27 @@ export function combineCheckpoints(scores, weights) {
  * @param {object|null} input.gradeRule
  * @param {boolean}  input.previousPublished   the preceding checkpoint is published for this class
  * @param {object}   input.previousRows        ENDTERM only: { OPENER: Map(student -> row), MIDTERM: Map(...) }
+ * @param {boolean}  input.openerEnabled       whether the Opener is held this term
+ * @param {object}   input.labels              the school's checkpoint names, for messages
  */
 export function calculateCheckpoint({
   checkpoint, assessments, scoresByAssessment, roster, gradeRule, previousPublished = false, previousRows = {},
+  openerEnabled = true, labels = null,
 }) {
   if (!CHECKPOINTS.includes(checkpoint)) throw new Error(`Unknown checkpoint ${checkpoint}`);
   const kind = kindOf(checkpoint);
   const inScope = assessments
     .filter((a) => !a._deleted && assessmentCheckpoint(a.assessment_type) === checkpoint)
-    .sort((a, b) => a.subject.localeCompare(b.subject) || (a.paper_no ?? 9) - (b.paper_no ?? 9)
+    .sort((a, b) => a.subject.localeCompare(b.subject) || componentOrder(a) - componentOrder(b)
       || a.assessment_id.localeCompare(b.assessment_id));
   const examSubjects = [...new Set(inScope.map((a) => a.subject))];
 
-  const issues = checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPublished });
+  const issues = checkConfiguration({ checkpoint, inScope, gradeRule, roster, previousPublished, openerEnabled, labels });
   const basis = inScope.map((a) => ({
     assessment_id: a.assessment_id,
     subject: a.subject,
     paper_no: a.paper_no ?? null,
+    component_type: a.component_type ?? null,
     weight: a.weight,
     max_score: a.max_score,
     score_count: a.score_count || 0,
@@ -289,7 +334,7 @@ export function calculateCheckpoint({
 
   for (const [subject, n] of zeroCovered) {
     issues.push(issue(SEVERITY.WARNING, 'ZERO_COVERED',
-      `${subject}: ${n} student${n === 1 ? ' has' : 's have'} no counted paper, so no ${type} result is shown`, { subject }));
+      `${subject}: ${n} student${n === 1 ? ' has' : 's have'} no counted paper, so no ${labelOf(checkpoint, labels)} result is shown`, { subject }));
   }
   for (const [subject, n] of partialTerm) {
     issues.push(issue(SEVERITY.WARNING, 'PARTIAL_TERM',
@@ -319,7 +364,10 @@ export function calculateCheckpoint({
 export function reportCardModel({ checkpoint, school, term, klass, student, entries }) {
   const current = entries.find((e) => e.set.checkpoint === checkpoint);
   const kind = kindOf(checkpoint);
-  const included = entries.filter((e) => checkpointsUpTo(checkpoint).includes(e.set.checkpoint));
+  // Names and the Opener setting as they were when this result was calculated, so a later change never rewrites a card.
+  const labels = current.set.basis_labels || null;
+  const openerEnabled = current.set.basis_opener_enabled ?? true;
+  const included = entries.filter((e) => checkpointsUpTo(checkpoint, openerEnabled).includes(e.set.checkpoint));
   const subjects = [...new Set(included.flatMap((e) => e.row.subjects.map((s) => s.subject)))].sort((a, b) => a.localeCompare(b));
 
   return {
@@ -332,6 +380,9 @@ export function reportCardModel({ checkpoint, school, term, klass, student, entr
     admission_no: student?.admission_no ?? null,
     published_at: current.set.published_at,
     calculation_id: current.set.calculation_id,
+    label: labelOf(checkpoint, labels),
+    labels: Object.fromEntries(CHECKPOINTS.map((c) => [c, labelOf(c, labels)])),
+    held: checkpointsFor(openerEnabled),
     checkpoint_weights: kind === RESULT_KIND.FINAL ? current.set.basis_checkpoint_weights : null,
     subjects: subjects.map((subject) => {
       const own = current.row.subjects.find((s) => s.subject === subject);
@@ -341,7 +392,7 @@ export function reportCardModel({ checkpoint, school, term, klass, student, entr
           const s = e.row.subjects.find((x) => x.subject === subject);
           return {
             checkpoint: e.set.checkpoint,
-            label: CHECKPOINT_LABEL[e.set.checkpoint],
+            label: labelOf(e.set.checkpoint, labels),
             papers: s?.papers || [],
             score: s?.score ?? null,
           };

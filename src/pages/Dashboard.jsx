@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FREQUENCY_LABEL } from '@gradebook/domain/decision';
 import { targetText } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { Sparkline } from '../components/ui.jsx';
+import { Checkbox, Sparkline } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -26,6 +26,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [riskQuery, setRiskQuery] = useState('');
   const [expandedStudent, setExpandedStudent] = useState(null);
+  // Flagged students ticked for one intervention; kept across search and pages.
+  const [picked, setPicked] = useState(() => new Set());
   const [query, setQuery] = useState('');
   const [riskPage, setRiskPage] = useState(1);
   const RISK_PAGE_SIZE = 10;
@@ -91,6 +93,30 @@ export default function Dashboard() {
   useEffect(() => {
     setRiskPage(1);
   }, [riskQuery]);
+
+  // Only students still flagged count, in the order the table lists them.
+  const pickedStudents = useMemo(
+    () => (d?.at_risk_students || []).filter((c) => picked.has(c.student.student_id)),
+    [d, picked]
+  );
+  const pageIds = paginatedStudents.map((c) => c.student.student_id);
+  const pagePicked = pageIds.filter((id) => picked.has(id)).length;
+  const hiddenPicked = pickedStudents.filter((c) => !pageIds.includes(c.student.student_id)).length;
+  const pickedClasses = new Set(pickedStudents.map((c) => c.student.class_id)).size;
+  const togglePick = (id) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const pickPage = (on) => setPicked((prev) => {
+    const next = new Set(prev);
+    for (const id of pageIds) { if (on) next.add(id); else next.delete(id); }
+    return next;
+  });
+  const logForPicked = () => navigate(
+    `/interventions/new?students=${pickedStudents.map((c) => c.student.student_id).join(',')}`,
+    { state: { from: '/dashboard' } }
+  );
 
   return (
     <div className="stack">
@@ -177,6 +203,10 @@ export default function Dashboard() {
                 <table>
                   <thead>
                     <tr>
+                      <th className="pick">
+                        <Checkbox label="Select every student on this page" checked={pageIds.length > 0 && pagePicked === pageIds.length}
+                          indeterminate={pagePicked > 0} onChange={pickPage} />
+                      </th>
                       <th>Student</th>
                       <th>Class</th>
                       <th>Estimated risk</th>
@@ -190,9 +220,11 @@ export default function Dashboard() {
                       const id = c.student.student_id;
                       const isOpen = expandedStudent === id;
 
+                      const isPicked = picked.has(id);
+
                       return (
-                        <>
-                          <tr key={id} className={`risk-student-row${isOpen ? ' selected' : ''}`}
+                        <Fragment key={id}>
+                          <tr className={`risk-student-row${isOpen ? ' open' : ''}${isPicked ? ' selected' : ''}`}
                             onClick={() => setExpandedStudent(isOpen ? null : id)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
@@ -202,6 +234,11 @@ export default function Dashboard() {
                             }}
                             tabIndex={0} aria-expanded={isOpen}
                           >
+                            {/* Ticking a student must not open or close their details. */}
+                            <td className="pick" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                              <Checkbox label={`Select ${c.student.first_name} ${c.student.last_name}`} checked={isPicked}
+                                onChange={() => togglePick(id)} />
+                            </td>
                             <td>
                               <b>{c.student.first_name} {c.student.last_name}</b>
                               <div className="hint">{c.student.admission_no}</div>
@@ -215,8 +252,8 @@ export default function Dashboard() {
                           </tr>
 
                           {isOpen && (
-                            <tr key={`${id}-details`} className="risk-detail-row">
-                              <td colSpan={5}>
+                            <tr className="risk-detail-row">
+                              <td colSpan={6}>
                                 <div className="risk-student-details">
                                   <div className="stack">
                                     <h3 className="sub">Targets</h3>
@@ -288,7 +325,7 @@ export default function Dashboard() {
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -320,6 +357,21 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {pickedStudents.length > 0 && (
+              <div className="action-bar" role="region" aria-label="Selected students">
+                <span className="count">{pickedStudents.length} {pickedStudents.length === 1 ? 'student' : 'students'} selected</span>
+                <span className="why">
+                  {pickedClasses > 1 ? `from ${pickedClasses} classes` : ''}
+                  {hiddenPicked > 0 ? `${pickedClasses > 1 ? ', ' : ''}${hiddenPicked} not shown on this page` : ''}
+                </span>
+                <span className="grow" />
+                <button type="button" className="btn secondary" onClick={() => setPicked(new Set())}>Clear selection</button>
+                <button type="button" className="btn" onClick={logForPicked}>
+                  Log an intervention for {pickedStudents.length === 1 ? 'this student' : `these ${pickedStudents.length}`}
+                </button>
               </div>
             )}
           </section>
