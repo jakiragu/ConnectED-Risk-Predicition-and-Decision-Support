@@ -67,7 +67,16 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
   const diceFoundByClass = new Map(classIds.map((c) => [c, 0]));
   const coverageProblems = [];
 
+  const historyStartedAt = Date.now();
+
+  function progress(message) {
+    const elapsed = ((Date.now() - historyStartedAt) / 1000).toFixed(1);
+    console.log(`[history +${elapsed}s] ${message}`);
+  }
+
   for (const term of terms) {
+    if (term.term_number !== 1) continue;
+    
     for (const checkpoint of ['MIDTERM', 'ENDTERM']) {
       // T3F is the outcome, not a prediction checkpoint. Leave it available for demos.
       if (term.term_number === 3 && checkpoint === 'ENDTERM') continue;
@@ -78,6 +87,8 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
       const point = `T${term.term_number}${checkpoint === 'MIDTERM' ? 'M' : 'F'}`;
 
       for (const classId of classIds) {
+        const classStartedAt = Date.now();
+        progress(`Starting ${classId} ${point}...`);
         const scope = { termId: term.term_id, classId, checkpoint };
         const roster = items.filter((i) => i.entity === 'Student' && i.class_id === classId);
         const live = await assessments.listAllLive(schoolId, classId, term.term_id);
@@ -86,6 +97,7 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
         const previousRows = previous
           ? { MIDTERM: new Map((await results.listRows(schoolId, previous)).map((r) => [r.student_id, r])) } : {};
         const gradeRule = items.find((i) => i.entity === 'GradeRule' && i.term_id === term.term_id);
+        const calculationStartedAt = Date.now();
         const calc = calculateCheckpoint({ checkpoint, assessments: live, roster, gradeRule,
           scoresByAssessment: new Map(live.map((a) => [a.assessment_id,
             items.filter((i) => i.entity === 'Score' && i.assessment_id === a.assessment_id)])),
@@ -109,6 +121,11 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
         }
         await history.writeHistory(schoolId, set, await results.listRows(schoolId, set), term);
         await history.markHistoryWritten(schoolId, set);
+        progress(
+          `${classId} ${point}: calculation, publication and history took ${((Date.now() - calculationStartedAt) / 1000).toFixed(1)}s`
+        );
+
+        const visibilityStartedAt = Date.now();
 
         // GSI2 attendance queries are eventually consistent. Wait for complete inputs.
         for (const student of roster) {
@@ -120,9 +137,21 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
           }
         }
 
+        progress(
+          `${classId} ${point}: input visibility checks took ${((Date.now() - visibilityStartedAt) / 1000).toFixed(1)}s`
+        );
+
+        const predictionStartedAt = Date.now();
+
         // Await real scoring and counterfactual generation; no fabricated explanations.
         await predict({ action: 'run', school_id: schoolId, class_id: classId,
           term_id: term.term_id, checkpoint, requested_by: actor.sub });
+
+        progress(
+          `${classId} ${point}: prediction and explanation generation took ${((Date.now() - predictionStartedAt) / 1000).toFixed(1)}s`
+        );
+
+        const retrievalStartedAt = Date.now();
 
         const predictions = [];
         for (const student of roster) {
@@ -152,36 +181,16 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
         if (!flagged.some((p) => SHOWS_TARGETS.has(p.counterfactuals.status))) {
           coverageProblems.push(`${classId} ${point}: no flagged student has improvement targets`);
         }
+        
+        const duration = ((Date.now() - classStartedAt) / 1000).toFixed(1);
 
-        if (point === 'T2M') {
-          // Interventions follow each student's own explanation: the subject that raised risk most.
-          const chosen = flagged
-            .map((p) => ({ p, subject: topRiskSubject(p, subjects) }))
-            .filter((c) => c.subject)
-            .slice(0, 3);
-          for (const [i, { p, subject }] of chosen.entries()) {
-            const stopped = i === 2;
-            const stoppedOn = stopped ? '2026-07-24' : null;
-            const logger = interventionActor(staff, classId, subject, actor);
-            const created = await interventions.create(schoolId, {
-              intervention_id: `seed_${classId}_${i}`, student_id: p.student_id, class_id: classId,
-              factor: subject, method: `Weekly guided revision and practice questions in ${subject}`,
-              frequency: 'WEEKLY', status: stopped ? 'STOPPED' : 'ONGOING',
-              started_on: date, stopped_on: stoppedOn,
-              expected_outcome: `Improve ${subject} performance at the next checkpoint.`,
-              notes: 'Seeded demonstration intervention.', linked: linkFor(p, subject),
-            }, logger);
-            if (created?.PK && created?.SK) {
-              const at = stopped ? `${stoppedOn}T08:00:00.000Z` : `${date}T13:00:00.000Z`;
-              await put({ ...backdate(created, at), created_at: `${date}T13:00:00.000Z` });
-            } else {
-              console.warn(`  note: interventionRepo.create did not return the item; ${p.student_id} keeps run-time timestamps`);
-            }
-            summary.interventions++;
-          }
-          if (!chosen.length) coverageProblems.push(`${classId} T2M: no flagged student had a subject raising risk`);
-        }
-        console.log(`  published + predicted ${classId} ${point} (${predictions.length} students, ${flagged.length} flagged)`);
+        progress(
+          `Completed ${classId} ${point}: ${predictions.length} students, ${flagged.length} flagged (${duration}s).`
+        );
+
+        progress(
+          `${classId} ${point}: prediction retrieval took ${((Date.now() - retrievalStartedAt) / 1000).toFixed(1)}s`
+        );
       }
     }
   }

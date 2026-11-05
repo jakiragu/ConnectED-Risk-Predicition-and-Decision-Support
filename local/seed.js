@@ -9,11 +9,16 @@ import { seedPublishedHistory } from './seed-history.js';
 import { attendancePeriods } from '../backend/library/calendar.js';
 import { pathToFileURL } from 'node:url';
 
+const seedStartedAt = Date.now();
+
+function progress(message) {
+  const elapsed = ((Date.now() - seedStartedAt) / 1000).toFixed(1);
+  console.log(`[seed +${elapsed}s] ${message}`);
+}
 
 const DEV_PASSWORD = process.env.SEED_PASSWORD || 'Gradebook-Dev-2026!';
 const SCHOOL = 'sch_saint_innocent';
-// Term 3 is the latest term with published results, so it is the current term.
-const TERM = 'term_2026_3';
+const TERM = 'term_2026_2';
 
 const STREAMS = ['North', 'East', 'South', 'West'];
 
@@ -77,13 +82,6 @@ function rngFor(key) {
 const between = (r, lo, hi) => lo + r() * (hi - lo);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-/*
- * Student profiles across the five seeded checkpoints (T1M..T3M).
- * level  = average mark at T1M; trend = change per checkpoint.
- * Twenty slots per class, shuffled per class, so at-risk students sit at
- * different roster positions in different classes. Marks never respond to
- * interventions: the seed makes no causal claim about intervention effects.
- */
 const PROFILE_SLOTS = [
   { kind: 'strong', count: 4, level: [74, 88], trend: [-1, 1], attendance: [0.90, 0.98], attTrend: 0 },
   { kind: 'solid', count: 5, level: [60, 72], trend: [-1, 1], attendance: [0.85, 0.95], attTrend: 0 },
@@ -203,7 +201,7 @@ const TERMS = [
     start_date: '2026-05-04',
     mid_term_date: '2026-06-19',
     end_date: '2026-08-07',
-    status: 'PAST',
+    status: 'CURRENT',
     closures: [
       { from: '2026-06-01', to: '2026-06-01', label: 'Madaraka Day' },
       { from: '2026-06-25', to: '2026-06-28', label: 'Half-term break' },
@@ -217,7 +215,7 @@ const TERMS = [
     start_date: '2026-08-31',
     mid_term_date: '2026-09-25',
     end_date: '2026-10-30',
-    status: 'CURRENT',
+    status: 'FUTURE',
     closures: [
       { from: '2026-10-20', to: '2026-10-20', label: 'Mashujaa Day' },
     ],
@@ -281,6 +279,29 @@ const TEST_CLASS = {
   classId: 'cls_test',
   name: 'Form 4 Test',
 };
+
+// Deliberately missing T2M entries for the live gradebook demonstration.
+const T2M_DEMO_MISSING = {
+  scores: [
+    { student_id: 'stu_19001', subject: 'Kiswahili' },
+    { student_id: 'stu_19004', subject: 'Kiswahili' },
+  ],
+  attendance: [
+    'stu_19001',
+    'stu_19003',
+    'stu_19005',
+  ],
+};
+
+const isMissingDemoScore = (studentId, subject) =>
+  T2M_DEMO_MISSING.scores.some(
+    (entry) =>
+      entry.student_id === studentId &&
+      entry.subject === subject
+  );
+
+const isMissingDemoAttendance = (studentId) =>
+  T2M_DEMO_MISSING.attendance.includes(studentId);
 
 items.push({
   PK: pk(SCHOOL),
@@ -475,18 +496,18 @@ function seedAssessmentsAndScores(enteredBy) {
       assessment_type: 'MIDTERM',
       title: 'Term 2 Midterm',
     },
-    {
-      point: 'T2F',
-      term_id: 'term_2026_2',
-      assessment_type: 'ENDTERM',
-      title: 'Term 2 Endterm',
-    },
-    {
-      point: 'T3M',
-      term_id: 'term_2026_3',
-      assessment_type: 'MIDTERM',
-      title: 'Term 3 Midterm',
-    },
+    // {
+    //   point: 'T2F',
+    //   term_id: 'term_2026_2',
+    //   assessment_type: 'ENDTERM',
+    //   title: 'Term 2 Endterm',
+    // },
+    // {
+    //   point: 'T3M',
+    //   term_id: 'term_2026_3',
+    //   assessment_type: 'MIDTERM',
+    //   title: 'Term 3 Midterm',
+    // },
   ];
 
   let assessmentCount = 0;
@@ -501,18 +522,41 @@ function seedAssessmentsAndScores(enteredBy) {
     checkpoint.due_date = period.to;
     const createdAt = `${period.from}T06:00:00.000Z`;
     const enteredAt = `${period.to}T09:00:00.000Z`;
-    roster.forEach((student, i) => items.push({
-      PK: pk(SCHOOL), SK: sk.attendance(term.term_id, period.period, student.student_id),
-      GSI2PK: gsi2.pk(SCHOOL, student.student_id),
-      GSI2SK: gsi2.attendance(2026, term.term_number, period.period),
-      entity: 'Attendance', school_id: SCHOOL, student_id: student.student_id,
-      class_id: classId, term_id: term.term_id, academic_year: 2026,
-      term_number: term.term_number, period: period.period,
-      days_attended: Math.round(period.school_days * attendanceRateFor(profiles[i], checkpointIndex, r)),
-      days_excused: 0, school_days_when_entered: period.school_days,
-      recorded_by: enteredBy, recorded_by_name: 'John Man', recorded_at: enteredAt,
-      _version: 1, _lastChangedAt: Date.parse(enteredAt),
-    }));
+    roster.forEach((student, i) => {
+      // Leave selected T2M attendance records empty in the test class.
+      if (
+        checkpoint.point === 'T2M' &&
+        classId === TEST_CLASS.classId &&
+        isMissingDemoAttendance(student.student_id)
+      ) {
+        return;
+      }
+
+      items.push({
+        PK: pk(SCHOOL),
+        SK: sk.attendance(term.term_id, period.period, student.student_id),
+        GSI2PK: gsi2.pk(SCHOOL, student.student_id),
+        GSI2SK: gsi2.attendance(2026, term.term_number, period.period),
+        entity: 'Attendance',
+        school_id: SCHOOL,
+        student_id: student.student_id,
+        class_id: classId,
+        term_id: term.term_id,
+        academic_year: 2026,
+        term_number: term.term_number,
+        period: period.period,
+        days_attended: Math.round(
+          period.school_days * attendanceRateFor(profiles[i], checkpointIndex, r)
+        ),
+        days_excused: 0,
+        school_days_when_entered: period.school_days,
+        recorded_by: enteredBy,
+        recorded_by_name: 'John Man',
+        recorded_at: enteredAt,
+        _version: 1,
+        _lastChangedAt: Date.parse(enteredAt),
+      });
+    });
     MODEL_SUBJECTS.forEach((subject, subjectIndex) => {
       const assessmentId =
         `seed_${classId}_${checkpoint.point}_${subject.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -534,7 +578,15 @@ function seedAssessmentsAndScores(enteredBy) {
         weight: 100,
         max_score: 100,
         due_date: checkpoint.due_date,
-        score_count: roster.length,
+        score_count: roster.length - (
+          checkpoint.point === 'T2M' && classId === TEST_CLASS.classId
+            ? T2M_DEMO_MISSING.scores.filter(
+                (entry) =>
+                  entry.subject === subject &&
+                  roster.some((student) => student.student_id === entry.student_id)
+              ).length
+            : 0
+        ),
         created_at: createdAt,
         updated_at: enteredAt,
         created_by: enteredBy,
@@ -571,6 +623,15 @@ function seedAssessmentsAndScores(enteredBy) {
 
       roster.forEach((student, studentIndex) => {
         const studentId = student.student_id;
+
+        // Leave selected T2M marks empty in the test class.
+        if (
+          checkpoint.point === 'T2M' &&
+          classId === TEST_CLASS.classId &&
+          isMissingDemoScore(studentId, subject)
+        ) {
+          return;
+        }
 
         const rawScore = markFor(profiles[studentIndex], subjectIndex, checkpointIndex, r);
         const normalizedScore = Math.round(rawScore * 100) / 100;
@@ -632,6 +693,9 @@ async function account(teacher) {
 }
 
 async function batchWriteAll(allItems) {
+  const totalBatches = Math.ceil(allItems.length / 25);
+  let completedBatches = 0;
+
   for (let i = 0; i < allItems.length; i += 25) {
     let pending = allItems.slice(i, i + 25).map((Item) => ({
       PutRequest: { Item },
@@ -656,15 +720,25 @@ async function batchWriteAll(allItems) {
 
       pending = result.UnprocessedItems?.[TABLE] || [];
     }
+    
+    completedBatches++;
+
+    if (completedBatches % 20 === 0 || completedBatches === totalBatches) {
+      progress(`Database writes: ${completedBatches}/${totalBatches} batches completed.`);
+    }
   }
 }
 
 async function run() {
+  progress('Starting database setup...');
   await ensureTable({ reset: process.argv.includes('--reset') });
+  progress('Database setup complete.');
 
   const subs = {};
   for (const teacher of TEACHERS) {
+    progress(`Creating account: ${teacher.email}`);
     subs[teacher.key] = await account(teacher);
+    progress('Teacher accounts created.');
   }
 
   for (const teacher of TEACHERS) {
@@ -692,9 +766,13 @@ async function run() {
     }
   }
 
+  progress('Generating assessments, scores and attendance...');
   const seeded = seedAssessmentsAndScores(subs.john);
+  progress(`Generated ${items.length} records in memory.`);
 
+  progress(`Writing ${items.length} records to DynamoDB...`);
   await batchWriteAll(items);
+  progress('Initial database write complete.');
   const staff = TEACHERS.map((t) => ({
     sub: subs[t.key],
     name: `${t.first_name} ${t.last_name}`,
@@ -702,10 +780,12 @@ async function run() {
     assignments: t.assignments,
     class_teacher_of: t.class_teacher_of,
   }));
+  progress('Starting historical result publication and risk predictions...');
   const riskSummary = await seedPublishedHistory({
     schoolId: SCHOOL, terms: TERMS, classIds: allClassIds, items, staff,
     subjects: MODEL_SUBJECTS, actor: { sub: subs.john, name: 'John Man' },
   });
+  progress('Historical publication and risk predictions complete.');
 
   console.log(`Seeded ${items.length} items into ${TABLE}`);
   console.log(`  school        ${SCHOOL}`);
@@ -716,7 +796,7 @@ async function run() {
   console.log(`  assessments   ${seeded.assessmentCount}`);
   console.log(`  score records ${seeded.scoreCount}`);
   console.log(`  attendance    ${items.filter((i) => i.entity === 'Attendance').length}`);
-  console.log(`  publications  ${allClassIds.length * 5} (with model predictions and SHAP)`);
+  console.log(`  publications  ${allClassIds.length * 2} (with model predictions and SHAP)`);
   console.log(`  flagged       ${riskSummary.flagged} (counterfactuals: ${JSON.stringify(riskSummary.counterfactuals)})`);
   console.log(`  interventions ${riskSummary.interventions}`);
 
