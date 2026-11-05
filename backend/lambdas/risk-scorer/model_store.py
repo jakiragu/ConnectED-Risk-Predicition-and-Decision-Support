@@ -4,7 +4,7 @@ way locally (MinIO / s3rver) and on AWS (S3).
 
     models/current.json                  {"model_version": "...", "prefix": "models/<version>/"}
     models/<version>/manifest.json       per point: file, features, threshold
-    models/<version>/<point>.json        XGBoost model in its portable JSON format
+    models/<version>/<point>.json        logistic regression in linear_model.py's JSON format
     models/<version>/counterfactual-stats.json   optional: permitted-change caps and peer
                                          statistics for counterfactual targets
 
@@ -19,9 +19,10 @@ import os
 import time
 
 import boto3
-import xgboost
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+import linear_model
 
 POINTER_KEY = "models/current.json"
 POINTER_TTL = int(os.environ.get("MODEL_POINTER_TTL_SECONDS", "60"))
@@ -69,7 +70,7 @@ def current_version():
 
 
 class LoadedModel:
-    """One published model version: its manifest and a booster per prediction point."""
+    """One published model version: its manifest and a logistic regression per prediction point."""
 
     def __init__(self, version, prefix):
         self.version = version
@@ -77,7 +78,10 @@ class LoadedModel:
         self.manifest = json.loads(_get(f"{prefix}manifest.json"))
         if self.manifest.get("model_version") != version:
             raise RuntimeError(f"manifest says {self.manifest.get('model_version')}, expected {version}")
-        self.boosters = {}
+        if self.manifest.get("framework") != linear_model.FRAMEWORK:
+            raise RuntimeError(f"model {version} is a {self.manifest.get('framework')} package; the scorer runs "
+                               f"{linear_model.FRAMEWORK} packages (ml/package_logreg.py), so publish one")
+        self.models = {}
         self._stats = None
         self._stats_loaded = False
 
@@ -99,20 +103,19 @@ class LoadedModel:
             raise RuntimeError(f"model {self.version} has no model for prediction point {point}")
         return spec
 
-    def booster(self, point):
-        if point not in self.boosters:
+    def model(self, point):
+        if point not in self.models:
             spec = self.point(point)
             raw = _get(f"{self.prefix}{spec['file']}")
             if spec.get("sha256") and hashlib.sha256(raw).hexdigest() != spec["sha256"]:
                 raise RuntimeError(f"{spec['file']} does not match the checksum in the manifest")
-            booster = xgboost.Booster()
-            booster.load_model(bytearray(raw))
-            if booster.feature_names and list(booster.feature_names) != list(spec["features"]):
+            model = linear_model.LogisticModel(json.loads(raw))
+            if model.feature_names != list(spec["features"]):
                 raise RuntimeError(f"{point}: the model's feature names do not match the manifest")
-            if booster.num_features() != len(spec["features"]):
-                raise RuntimeError(f"{point}: the model expects {booster.num_features()} features, the manifest lists {len(spec['features'])}")
-            self.boosters[point] = booster
-        return self.boosters[point]
+            if model.num_features() != len(spec["features"]):
+                raise RuntimeError(f"{point}: the model expects {model.num_features()} features, the manifest lists {len(spec['features'])}")
+            self.models[point] = model
+        return self.models[point]
 
 
 def load(version=None):

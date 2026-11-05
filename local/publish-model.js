@@ -12,7 +12,8 @@ import { invoke, scorerFunction } from '../backend/library/invoke.js';
  * uses. The same steps run locally (MinIO / s3rver) and against AWS (with AWS
  * credentials and MODEL_BUCKET set):
  *   1. check the folder: manifest, one model per prediction point, the
- *      feature contract's columns in order, XGBoost binary:logistic, checksums,
+ *      feature contract's columns in order, a logistic regression in the
+ *      scorer's JSON format (linear_model.py), checksums,
  *      and the counterfactual statistics if the package has them
  *      (counterfactual-stats.json: permitted-change caps and peer progression)
  *   2. upload it to models/<model_version>/ (a version is never overwritten)
@@ -24,6 +25,9 @@ import { invoke, scorerFunction } from '../backend/library/invoke.js';
  */
 const Bucket = process.env.MODEL_BUCKET;
 const POINTER = 'models/current.json';
+// What backend/lambdas/risk-scorer/linear_model.py loads.
+const FRAMEWORK = 'sklearn-logistic-regression';
+const MODEL_FORMAT = 'connected-logreg-v1';
 const fail = (msg) => {
   console.error(`\nNot published: ${msg}`);
   process.exit(1);
@@ -55,7 +59,7 @@ function check(folder) {
   if (!existsSync(manifestPath)) fail(`${manifestPath} not found`);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(manifest.model_version || '')) fail('manifest.model_version must be 1-64 letters, digits, . _ or -');
-  if (manifest.framework !== 'xgboost') fail('manifest.framework must be "xgboost"');
+  if (manifest.framework !== FRAMEWORK) fail(`manifest.framework must be "${FRAMEWORK}" (package it with ml/package_logreg.py)`);
   const points = Object.keys(manifest.points || {});
   const missingPoints = POINT_NAMES.filter((p) => !points.includes(p));
   if (missingPoints.length) fail(`manifest has no model for ${missingPoints.join(', ')}`);
@@ -75,13 +79,23 @@ function check(folder) {
     const raw = readFileSync(path);
     if (spec.sha256 && spec.sha256 !== sha256(raw)) fail(`${point}: ${spec.file} does not match its sha256 in the manifest`);
     spec.sha256 = sha256(raw);
-    if (spec.file.endsWith('.json')) {
-      const model = JSON.parse(raw.toString('utf8'));
-      const objective = model?.learner?.objective?.name;
-      if (objective !== 'binary:logistic') fail(`${point}: objective is ${objective}, expected binary:logistic`);
-      const names = model?.learner?.feature_names;
-      if (names?.length && !same(names, spec.features)) fail(`${point}: the model was trained with different feature names or order than the manifest`);
+    let model;
+    try {
+      model = JSON.parse(raw.toString('utf8'));
+    } catch {
+      fail(`${point}: ${spec.file} is not valid JSON`);
     }
+    if (model?.format !== MODEL_FORMAT) fail(`${point}: model format is ${model?.format}, expected ${MODEL_FORMAT}`);
+    if (!same(model.feature_names, spec.features)) fail(`${point}: the model was trained with different feature names or order than the manifest`);
+    const n = spec.features.length;
+    const numbers = (v) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
+    const vectors = { 'imputer.statistics': model.imputer?.statistics, 'scaler.mean': model.scaler?.mean,
+      'scaler.scale': model.scaler?.scale, coef: model.coef, 'background.mean': model.background?.mean };
+    for (const [name, v] of Object.entries(vectors)) if (!numbers(v)) fail(`${point}: ${name} must be ${n} finite numbers`);
+    if (!model.scaler.scale.every((v) => v > 0)) fail(`${point}: scaler.scale must be positive`);
+    if (!Number.isFinite(model.intercept)) fail(`${point}: intercept must be a finite number`);
+    const cov = model.background?.cov;
+    if (!(Array.isArray(cov) && cov.length === n && cov.every(numbers))) fail(`${point}: background.cov must be ${n} x ${n} finite numbers`);
     files.push({ point, file: spec.file, raw });
   }
 

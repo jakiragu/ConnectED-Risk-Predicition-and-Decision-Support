@@ -212,8 +212,18 @@ td.actions .btn.danger {
 
 /* ------------------------------------------------------------ score entry */
 
+.score-table .mark-control { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.score-table .mark-control select { width: auto; padding-top: 6px; padding-bottom: 6px; }
 .score-table .mark-input { width: 5.5rem; padding: 6px var(--space-2); text-align: right; }
-.score-table tr.row-dirty td { background: var(--surface-alt); }
+/* Fixed columns: a changing mark, percentage or state must not resize a column and slide the rest of the row. */
+.score-table { table-layout: fixed; min-width: 58rem; }
+.score-table th:nth-child(1) { width: 7rem; }   /* Adm. no */
+.score-table th:nth-child(3) { width: 20rem; }  /* Mark: field, out-of, status */
+.score-table th:nth-child(4) { width: 6rem; }   /* % */
+.score-table th:nth-child(5) { width: 14rem; }  /* State; the Student column takes the rest */
+.score-table td:nth-child(4) { font-variant-numeric: tabular-nums; }
+/* An unsaved row is marked at its edge. A background tint is the same blue as the zebra stripes, so it looked like the row changed colour. */
+.score-table tr.row-dirty td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
 .score-table tr.row-error .mark-input { border-color: var(--danger); }
 .score-table .ok { color: var(--success); font-size: var(--t-xs); }
 .score-table .warn { color: var(--warning); font-size: var(--t-xs); }
