@@ -1,0 +1,8 @@
+{
+  "node": "v22.11.0",
+  "project": "connected-ed-risk-prediction@undefined",
+  "api": "http://localhost:4000/graphql",
+  "ddb_endpoint": "http://localhost:8000",
+  "run_at": "2026-10-20T10:20:17.425Z",
+  "service_versions": "ADD BY HAND: DynamoDB Local, cognito-local, MinIO, Docker, Python, xgboost, shap, dice-ml"
+}
