@@ -11,6 +11,7 @@ import { buildForStudent } from '../backend/library/featureStore.js';
 import { linkFor } from '../backend/library/riskProfile.js';
 import { groupOf } from '../backend/library/explanations.js';
 import { handler as predict } from '../backend/lambdas/risk-prediction/handler.js';
+import { seedInterventions } from './seed-interventions.js';
 
 const put = (Item) => ddb.send(new PutCommand({ TableName: TABLE, Item }));
 
@@ -64,6 +65,7 @@ function interventionActor(staff, classId, subject, admin) {
 /** Seed-only orchestration; calculations, publication guards and ML use production code. */
 export async function seedPublishedHistory({ schoolId, terms, classIds, items, staff, subjects, actor }) {
   const summary = { flagged: 0, interventions: 0, counterfactuals: {} };
+  const interventionPredictions = [];
   const diceFoundByClass = new Map(classIds.map((c) => [c, 0]));
   const coverageProblems = [];
 
@@ -168,6 +170,7 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
           }
           predictions.push(p);
         }
+        interventionPredictions.push(...predictions);
 
         const flagged = predictions.filter((p) => p.at_risk);
         if (!flagged.length) throw new Error(`No flagged seed students: ${classId} ${point}`);
@@ -181,7 +184,7 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
         if (!flagged.some((p) => SHOWS_TARGETS.has(p.counterfactuals.status))) {
           coverageProblems.push(`${classId} ${point}: no flagged student has improvement targets`);
         }
-        
+
         const duration = ((Date.now() - classStartedAt) / 1000).toFixed(1);
 
         progress(
@@ -203,6 +206,15 @@ export async function seedPublishedHistory({ schoolId, terms, classIds, items, s
     if (!ALLOW_NO_DICE) throw new Error(`${message}\nRerun with SEED_ALLOW_NO_DICE=1 to accept this as a warning.`);
     console.warn(`WARNING: ${message}`);
   }
+  const interventionSummary = await seedInterventions({
+    schoolId,
+    predictions: interventionPredictions,
+    terms,
+    staff,
+    admin: actor,
+  });
+
+  summary.interventions = interventionSummary.created;
   delete summary.warnedKeys;
   return summary;
 }
