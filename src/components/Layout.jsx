@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { NavLink, Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Link, Outlet, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { db, dropFor } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
@@ -25,20 +25,14 @@ const NAV = [
   { to: '/profile', label: 'My Profile' },
 ];
 
-function breadcrumbsFor(pathname) {
+function labelForPath(pathname) {
   const path = pathname.replace(/\/+$/, '') || '/';
-  const home = { label: 'Dashboard', to: '/dashboard' };
 
-  if (path === '/dashboard') {
-    return [{ label: 'Dashboard' }];
-  }
-
-  if (path === '/classes') {
-    return [home, { label: 'Classes' }];
-  }
+  if (path === '/dashboard') return 'Dashboard';
+  if (path === '/classes') return 'Classes';
 
   if (/^\/classes\/[^/]+\/students$/.test(path)) {
-    return [home, { label: 'Classes', to: '/classes' }, { label: 'Students' }];
+    return 'Students';
   }
 
   if (path === '/interventions/new') {
@@ -60,20 +54,24 @@ function breadcrumbsFor(pathname) {
     return crumbs;
   }
 
-  if (path === '/assessments') {
-    return [home, { label: 'Assessments' }];
+
+  if (/^\/students\/[^/]+\/risk$/.test(path)) {
+    return 'Student profile';
   }
 
-  if (path === '/assessments/new') {
-    return [home, { label: 'Assessments', to: '/assessments' }, { label: 'New assessment' }];
+  if (/^\/students\/[^/]+\/interventions$/.test(path)) {
+    return 'Interventions';
   }
+
+  if (path === '/assessments') return 'Assessments';
+  if (path === '/assessments/new') return 'New assessment';
 
   if (/^\/assessments\/[^/]+\/edit$/.test(path)) {
-    return [home, { label: 'Assessments', to: '/assessments' }, { label: 'Edit assessment' }];
+    return 'Edit assessment';
   }
 
   if (/^\/assessments\/[^/]+\/scores$/.test(path)) {
-    return [home, { label: 'Assessments', to: '/assessments' }, { label: 'Assessment marks' }];
+    return 'Assessment marks';
   }
 
   const pages = {
@@ -84,11 +82,48 @@ function breadcrumbsFor(pathname) {
     '/school-risk': 'School risk',
     '/teachers': 'Teachers',
     '/terms': 'Terms',
+    '/profile': 'My Profile',
   };
 
-  return pages[path]
-    ? [home, { label: pages[path] }]
-    : [home];
+  return pages[path] || 'Page';
+}
+
+function breadcrumbsForTrail(trail, pathname, search) {
+  const section = activeSectionFor(pathname);
+  const sectionItem = NAV.find((item) => item.to === section);
+  const sectionLabel = sectionItem?.label || 'Dashboard';
+
+  const currentHref = `${pathname}${search}`;
+
+  const sectionTrail = trail.filter(
+    (entry) => activeSectionFor(entry.pathname) === section
+  );
+
+  const hasSectionRoot = sectionTrail.some(
+    (entry) => entry.pathname === section
+  );
+
+  const crumbs = [];
+
+  // The sidebar section is the first breadcrumb.
+  // Avoid duplicating it when the user is already on its root page.
+  if (!hasSectionRoot) {
+    crumbs.push({
+      label: sectionLabel,
+      to: section,
+    });
+  }
+
+  sectionTrail.forEach((entry) => {
+    const href = `${entry.pathname}${entry.search}`;
+
+    crumbs.push({
+      label: labelForPath(entry.pathname),
+      to: href === currentHref ? undefined : href,
+    });
+  });
+
+  return crumbs;
 }
 
 function activeSectionFor(pathname) {
@@ -111,8 +146,89 @@ export default function Layout() {
   const isClassTeacher = classes.some((c) => c.is_class_teacher);
   const navigate = useNavigate();
   const location = useLocation();
-  const breadcrumbs = breadcrumbsFor(location.pathname);
+  const navigationType = useNavigationType();
+
   const activeSection = activeSectionFor(location.pathname);
+
+  const [routeTrail, setRouteTrail] = useState(() => [
+    {
+      key: location.key,
+      pathname: location.pathname,
+      search: location.search,
+    },
+  ]);
+
+  const previousLocation = useRef(location);
+
+  useEffect(() => {
+    const previous = previousLocation.current;
+
+    if (previous.key === location.key) return;
+
+    const current = {
+      key: location.key,
+      pathname: location.pathname,
+      search: location.search,
+    };
+
+    const previousSection = activeSectionFor(previous.pathname);
+    const currentSection = activeSectionFor(current.pathname);
+
+    setRouteTrail((trail) => {
+      const currentHref = `${current.pathname}${current.search}`;
+
+      // Switching sidebar sections starts a completely new trail.
+      if (previousSection !== currentSection) {
+        return [current];
+      }
+
+      // Find whether the destination already exists in the breadcrumb trail.
+      const existingIndex = trail.findIndex((entry) => {
+        return `${entry.pathname}${entry.search}` === currentHref;
+      });
+
+      // The destination is already in the trail:
+      // return to it and discard everything after it.
+      if (existingIndex >= 0) {
+        return [
+          ...trail.slice(0, existingIndex),
+          current,
+        ];
+      }
+
+      // Browser Back or Forward.
+      if (navigationType === 'POP') {
+        const historyIndex = trail.findIndex(
+          (entry) => entry.key === location.key
+        );
+
+        // The browser returned to an entry in our trail.
+        if (historyIndex >= 0) {
+          return trail.slice(0, historyIndex + 1);
+        }
+
+        // The browser returned to a page outside our tracked trail.
+        // Rebuild a sensible trail instead of appending it.
+        return [current];
+      }
+
+      // React Router replaced the current history entry.
+      if (navigationType === 'REPLACE') {
+        return [...trail.slice(0, -1), current];
+      }
+
+      // A genuinely new page within the same sidebar section.
+      return [...trail, current];
+    });
+
+    previousLocation.current = location;
+  }, [location, navigationType]);
+
+  const breadcrumbs = breadcrumbsForTrail(
+    routeTrail,
+    location.pathname,
+    location.search
+  );
 
   useEffect(() => startSync(actor), [actor.sub]);
 
