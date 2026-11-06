@@ -36,33 +36,17 @@ function labelForPath(pathname) {
   }
 
   if (path === '/interventions/new') {
-    return [home, { label: 'Log an intervention' }];
+    return 'Log an intervention';
   }
 
-  const studentMatch = path.match(/^\/students\/([^/]+)\/(risk|interventions)$/);
+  const studentMatch = path.match(/^\/students\/[^/]+\/(risk|interventions)$/);
+
   if (studentMatch) {
-    const [, studentId, page] = studentMatch;
-    const crumbs = [
-      home,
-      { label: 'Classes', to: '/classes' },
-      { label: 'Student profile', to: `/students/${studentId}/risk` },
-    ];
-
-    if (page === 'interventions') crumbs.push({ label: 'Interventions' });
-    else crumbs[crumbs.length - 1] = { label: 'Student profile' };
-
-    return crumbs;
+    return studentMatch[1] === 'interventions'
+      ? 'Interventions'
+      : 'Student profile';
   }
-
-
-  if (/^\/students\/[^/]+\/risk$/.test(path)) {
-    return 'Student profile';
-  }
-
-  if (/^\/students\/[^/]+\/interventions$/.test(path)) {
-    return 'Interventions';
-  }
-
+  
   if (path === '/assessments') return 'Assessments';
   if (path === '/assessments/new') return 'New assessment';
 
@@ -96,7 +80,7 @@ function breadcrumbsForTrail(trail, pathname, search) {
   const currentHref = `${pathname}${search}`;
 
   const sectionTrail = trail.filter(
-    (entry) => activeSectionFor(entry.pathname) === section
+    (entry) => activeSectionFor(entry.pathname) === section && entry.pathname !== section
   );
 
   const hasSectionRoot = sectionTrail.some(
