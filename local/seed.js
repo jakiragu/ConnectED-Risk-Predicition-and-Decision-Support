@@ -156,7 +156,6 @@ for (const term of TERMS) {
     school_id: SCHOOL,
     term_id: term.term_id,
     pass_mark: 50,
-    at_risk_threshold: 50,
     missing_score_policy: 'EXCLUDE',
     bands: BANDS,
     checkpoint_weights_version: 0,

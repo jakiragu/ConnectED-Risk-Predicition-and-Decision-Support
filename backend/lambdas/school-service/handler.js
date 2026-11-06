@@ -13,6 +13,8 @@ import { ulid } from '../../library/ids.js';
 import * as identity from '../../library/identity.js';
 import * as platform from '../../library/platformRepo.js';
 import * as school from '../../library/schoolRepo.js';
+import * as classSetupStore from '../../library/classSetupRepo.js';
+import { normaliseSetup, setupFromClasses, classFieldProblem, canonicalClassFields } from '../../library/classSetup.js';
 
 export async function handler(event) {
   const actor = await resolveActor(event);
@@ -43,6 +45,10 @@ export async function handler(event) {
       return resetTeacherPassword(actor, input);
     case 'listSchoolClasses':
       return listSchoolClasses(actor, args);
+    case 'getClassSetup':
+      return getClassSetup(actor, args);
+    case 'saveClassSetup':
+      return saveClassSetup(actor, input);
     case 'createClass':
       return createClass(actor, input);
     case 'updateClass':
@@ -357,9 +363,49 @@ async function assertNameFree(schoolId, name, classId = null) {
   if (taken) throw validation(`There is already a class called ${name}`, 'name');
 }
 
+// --------------------------------------------------------------- class setup
+
+/**
+ * The forms and streams classes can be created with. Before a school saves its
+ * own lists they are taken from its existing classes and not enforced.
+ */
+async function getClassSetup(actor, { school_id }) {
+  const saved = await classSetupStore.get(school_id);
+  if (saved) {
+    return { school_id, forms: saved.forms, streams: saved.streams, is_default: false, updated_at: saved.updated_at ?? null, _version: saved._version };
+  }
+  const derived = setupFromClasses(await platform.listClasses(school_id));
+  return { school_id, ...derived, is_default: true, updated_at: null, _version: 0 };
+}
+
+async function saveClassSetup(actor, input) {
+  assertAdmin(actor);
+  const { setup, problems } = normaliseSetup(input);
+  if (problems.length) throw validation(problems[0], 'class_setup');
+  try {
+    const saved = await classSetupStore.save(input.school_id, setup, input._version ?? 0, actor);
+    return { school_id: input.school_id, forms: saved.forms, streams: saved.streams, is_default: false, updated_at: saved.updated_at, _version: saved._version };
+  } catch (e) {
+    if (e.name !== 'ConditionalCheckFailedException') throw e;
+    throw conflict('Someone else changed the forms and streams. Reload and try again.');
+  }
+}
+
+/**
+ * Rejects a form or stream that is not in the school's saved lists, and
+ * returns the fields in the lists' own spelling.
+ */
+async function checkClassFields(schoolId, fields, changed = fields) {
+  if (fields.grade == null && fields.stream == null) return fields;
+  const setup = await classSetupStore.get(schoolId);
+  const problem = classFieldProblem(setup, changed);
+  if (problem) throw validation(problem.reason, problem.field);
+  return canonicalClassFields(setup, fields);
+}
+
 async function createClass(actor, input) {
   assertAdmin(actor);
-  const fields = readClassFields(input);
+  const fields = await checkClassFields(input.school_id, readClassFields(input));
   const name = fields.name || `${fields.grade} ${fields.stream}`;
   await assertNameFree(input.school_id, name);
   const item = await school.createClass(input.school_id, {
@@ -371,7 +417,12 @@ async function createClass(actor, input) {
 async function updateClass(actor, input) {
   assertAdmin(actor);
   const existing = await loadClass(input.school_id, input.class_id);
-  const patch = readClassFields(input, { partial: true });
+  // Only a changed form or stream is checked, so an older class can still be edited in other ways.
+  const read = readClassFields(input, { partial: true });
+  const patch = await checkClassFields(input.school_id, read, {
+    grade: read.grade != null && read.grade !== existing.grade ? read.grade : null,
+    stream: read.stream != null && read.stream !== existing.stream ? read.stream : null,
+  });
   if (patch.name) await assertNameFree(input.school_id, patch.name, existing.class_id);
   const updated = await school.updateClass(input.school_id, input.class_id, patch, input._version).catch(staleOr);
   return classView(updated);

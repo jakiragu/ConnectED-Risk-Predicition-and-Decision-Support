@@ -144,6 +144,8 @@ const GRADE_RULE_FIELDS = `
   term_id pass_mark missing_score_policy opener_enabled opener_locked_reason
   checkpoint_weights { opener midterm endterm }
   checkpoint_weights_version checkpoint_weights_problems checkpoint_weights_locked
+  bands { grade min_score max_score }
+  grading_version grading_locked_reason grading_updated_at grading_updated_by_name
 `;
 
 const RESULT_SET_FIELDS = `

@@ -16,6 +16,9 @@
     "./features": "./features.js",
     "./explanations": "./explanations.js",
     "./targets": "./targets.js",
-    "./decision": "./decisionSupport.js"
+    "./decision": "./decisionSupport.js",
+    "./grading": "./grading.js",
+    "./classProfile": "./classProfile.js",
+    "./classSetup": "./classSetup.js"
   }
 }

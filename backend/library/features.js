@@ -26,6 +26,18 @@ export const PREDICTION_POINTS = [
   { point: 'T2F', term_number: 2, checkpoint: 'ENDTERM' },
   { point: 'T3M', term_number: 3, checkpoint: 'MIDTERM' },
 ];
+/**
+ * What "at risk" means, fixed by how the models were trained: a student whose
+ * mean across the model subjects at the Term 3 End-term (T3F) is below 50%.
+ * It does not follow a school's own pass mark, which only affects grading; the
+ * T3M targets are judged against this mark too, so flags and targets agree.
+ */
+export const RISK_OUTCOME = Object.freeze({
+  pass_mark: 50,
+  point: 'T3F',
+  description: 'a year-end average below 50% across the model subjects at the Term 3 End-term',
+});
+
 export const POINT_NAMES = PREDICTION_POINTS.map((p) => p.point);
 
 export const pointOf = (point) => PREDICTION_POINTS.find((p) => p.point === point) || null;

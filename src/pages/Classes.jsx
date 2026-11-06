@@ -4,13 +4,30 @@ import { gql } from '../api/graphql.js';
 import { CREATE_CLASS, DELETE_CLASS, LIST_SCHOOL_CLASSES, UPDATE_CLASS } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Offline, DangerButton, ActionIcon } from '../components/ui.jsx';
-import { Field } from '../components/Field.jsx';
+import { Field, Select } from '../components/Field.jsx';
+import { GET_CLASS_SETUP } from '../api/settingsOperations.js';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 
 const EMPTY = { grade: '', stream: '', year: new Date().getFullYear() };
+
+/**
+ * A form or stream field: a choice from the school's lists once they are saved
+ * in Settings (the server then only accepts those), otherwise free text. A
+ * class created before the lists keeps its value as an extra choice.
+ */
+function ClassField({ id, label, kind, value, onChange, setup, placeholder, inTable = false }) {
+  const list = setup?._version > 0 ? setup[kind] : null;
+  const control = list ? (
+    <Select id={id} aria-label={inTable ? label : undefined} value={value} onChange={onChange} placeholder={`Choose a ${label.toLowerCase()}`}
+      options={value && !list.includes(value) ? [...list, value] : list} required />
+  ) : (
+    <input id={id} aria-label={inTable ? label : undefined} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} required />
+  );
+  return inTable ? control : <Field label={label} htmlFor={id}>{control}</Field>;
+}
 
 /** Teachers: the classes they work in, and what they teach there. Works offline from the cache. */
 function MyClasses({ schoolId }) {
@@ -39,7 +56,7 @@ function MyClasses({ schoolId }) {
             )}
             {sorted.map((c) => (
               <tr key={c.class_id}>
-                <td>{c.name}</td>
+                <td><Link to={`/classes/${c.class_id}`}>{c.name}</Link></td>
                 <td>{c.year}</td>
                 <td>{(c.my_subjects || []).join(', ') || <span className="hint">No subjects</span>}</td>
                 <td>{c.is_class_teacher ? <b>Class teacher</b> : 'Subject teacher'}</td>
@@ -57,13 +74,13 @@ function MyClasses({ schoolId }) {
   );
 }
 
-function EditRow({ klass, onSave, onCancel }) {
+function EditRow({ klass, setup, onSave, onCancel }) {
   const [f, setF] = useState({ name: klass.name, grade: klass.grade, stream: klass.stream, year: klass.year });
   return (
     <tr className="row-dirty">
       <td><input aria-label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></td>
-      <td><input aria-label="Form" value={f.grade} onChange={(e) => setF({ ...f, grade: e.target.value })} /></td>
-      <td><input aria-label="Stream" value={f.stream} onChange={(e) => setF({ ...f, stream: e.target.value })} /></td>
+      <td><ClassField inTable id={`e-grade-${klass.class_id}`} label="Form" kind="forms" setup={setup} value={f.grade} onChange={(v) => setF({ ...f, grade: v })} /></td>
+      <td><ClassField inTable id={`e-stream-${klass.class_id}`} label="Stream" kind="streams" setup={setup} value={f.stream} onChange={(v) => setF({ ...f, stream: v })} /></td>
       <td><input aria-label="Year" type="number" value={f.year} onChange={(e) => setF({ ...f, year: Number(e.target.value) })} /></td>
       <td colSpan={3} />
       <td className="actions">
@@ -79,6 +96,10 @@ function SchoolClasses({ schoolId }) {
   const { online } = useSync();
   const [classes, setClasses] = useState([]);
   const [form, setForm] = useState(EMPTY);
+  const [setup, setSetup] = useState(null);
+  useEffect(() => {
+    gql(GET_CLASS_SETUP, { school_id: schoolId }).then((d) => setSetup(d.getClassSetup)).catch(() => setSetup(null));
+  }, [schoolId]);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -127,17 +148,16 @@ function SchoolClasses({ schoolId }) {
       <form className="card stack" onSubmit={create}>
         <h2>Add a class</h2>
         <div className="weights-row">
-          <Field label="Form" htmlFor="c-grade">
-            <input id="c-grade" placeholder="Form 4" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} required />
-          </Field>
-          <Field label="Stream" htmlFor="c-stream">
-            <input id="c-stream" placeholder="South" value={form.stream} onChange={(e) => setForm({ ...form, stream: e.target.value })} required />
-          </Field>
+          <ClassField id="c-grade" label="Form" kind="forms" setup={setup} placeholder="Form 4" value={form.grade} onChange={(v) => setForm({ ...form, grade: v })} />
+          <ClassField id="c-stream" label="Stream" kind="streams" setup={setup} placeholder="South" value={form.stream} onChange={(v) => setForm({ ...form, stream: v })} />
           <Field label="Year" htmlFor="c-year">
             <input id="c-year" type="number" value={form.year} onChange={(e) => setForm({ ...form, year: e.target.value })} required />
           </Field>
           <button className="btn" type="submit">Add class</button>
         </div>
+        {setup && !(setup._version > 0) && (
+          <p className="hint">Tip: list your school’s forms and streams in <Link to="/settings/classes">Settings, Classes</Link> to choose them here instead of typing.</p>
+        )}
         <div className="hint">Assign subject teachers and the class teacher from the Teachers page.</div>
       </form>
 
@@ -149,11 +169,11 @@ function SchoolClasses({ schoolId }) {
           <tbody>
             {classes.map((c) =>
               editing === c.class_id ? (
-                <EditRow key={c.class_id} klass={c} onCancel={() => setEditing(null)}
+                <EditRow key={c.class_id} klass={c} setup={setup} onCancel={() => setEditing(null)}
                   onSave={(f) => run(UPDATE_CLASS, { class_id: c.class_id, ...f, _version: c._version }, `${f.name} saved`)} />
               ) : (
                 <tr key={c.class_id}>
-                  <td>{c.name}</td>
+                  <td><Link to={`/classes/${c.class_id}`}>{c.name}</Link></td>
                   <td>{c.grade}</td>
                   <td>{c.stream}</td>
                   <td>{c.year}</td>

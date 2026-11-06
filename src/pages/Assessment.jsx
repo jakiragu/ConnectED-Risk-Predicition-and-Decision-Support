@@ -168,7 +168,7 @@ export default function Assessments() {
 
       {error && <div className="card error-card">{error}</div>}
 
-      {termId && <CheckpointWeights schoolId={actor.schoolId} termId={termId} online={online} onChanged={() => setup.reload()} />}
+      {termId && <CheckpointWeights readOnly schoolId={actor.schoolId} termId={termId} online={online} onChanged={() => setup.reload()} />}
 
       {budgets.length > 0 && (
         <div className="budget-row">

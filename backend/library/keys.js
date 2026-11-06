@@ -27,6 +27,8 @@ export const sk = {
     `${componentType && componentType !== 'PAPER' ? `${componentType}#` : ''}${paperNo}`,
   score: (assessmentId, studentId) => `SCORE#${assessmentId}#${studentId}`,
   gradeRule: (termId) => `GRADERULE#${termId}`,
+  gradingPolicy: () => 'GRADEPOLICY#DEFAULT',
+  classSetup: () => 'CLASSSETUP#SCHOOL',
   // Results are published per class, so the term lock is per class.
   termLock: (termId, classId) => `TERMLOCK#${termId}#CLASS#${classId}`,
   // One result set per class + term + checkpoint: the unit that is reviewed and published.
