@@ -16,24 +16,32 @@ import { useSidebar, SIDEBAR } from '../hooks/useSidebar.js';
 const adminOrClassTeacher = ({ isAdmin, isClassTeacher }) => isAdmin || isClassTeacher;
 const adminOnly = ({ isAdmin }) => isAdmin;
 const NAV_GROUPS = [
-  { label: 'Teaching', items: [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/classes', label: 'Classes' },
-    { to: '/assessments', label: 'Assessments' },
-    { to: '/attendance', label: 'Attendance', show: adminOrClassTeacher },
-  ] },
-  { label: 'Results', items: [
-    { to: '/results', label: 'Results' },
-    { to: '/report-cards', label: 'Report cards', show: adminOrClassTeacher },
-  ] },
-  { label: 'Insights', items: [
-    { to: '/risk', label: 'Risk prediction', show: adminOrClassTeacher },
-    { to: '/school-risk', label: 'School risk', show: adminOnly },
-  ] },
-  { label: 'Administration', items: [
-    { to: '/teachers', label: 'Teachers', show: adminOnly },
-    { to: '/settings', label: 'Settings', show: adminOnly },
-  ] },
+  {
+    label: 'Teaching', items: [
+      { to: '/dashboard', label: 'Dashboard' },
+      { to: '/assessments', label: 'Assessments' },
+      { to: '/attendance', label: 'Attendance', show: adminOrClassTeacher },
+    ]
+  },
+  {
+    label: 'Results', items: [
+      { to: '/results', label: 'Results' },
+      { to: '/report-cards', label: 'Report cards', show: adminOrClassTeacher },
+    ]
+  },
+  {
+    label: 'Insights', items: [
+      { to: '/risk', label: 'Risk prediction', show: adminOrClassTeacher },
+      { to: '/school-risk', label: 'School risk', show: adminOnly },
+    ]
+  },
+  {
+    label: 'Administration', items: [
+      { to: '/classes', label: 'Classes' },
+      { to: '/teachers', label: 'Teachers', show: adminOnly },
+      { to: '/settings', label: 'Settings', show: adminOnly },
+    ]
+  },
   { label: 'You', items: [{ to: '/profile', label: 'My Profile' }] },
 ];
 const NAV = NAV_GROUPS.flatMap((g) => g.items);
@@ -196,45 +204,45 @@ export default function Layout() {
   return (
     <div className={`shell${hidden ? ' nav-hidden' : ''}`} style={{ '--sidebar-w': `${width}px` }}>
       {!hidden && (
-      <aside className="sidebar" id="sidebar" ref={aside}>
-        <div className="brand">
-          <div className="brand-name">ConnectED</div>
-          <div className="brand-sub">Exam and Gradebook System</div>
-        </div>
-        <nav className="nav" aria-label="Main">
-          {NAV_GROUPS.map((group) => {
-            const items = group.items.filter((item) => !item.show || item.show({ isAdmin, isClassTeacher }));
-            if (!items.length) return null;
-            const open = !collapsed.has(group.label);
-            const id = `nav-group-${group.label.toLowerCase()}`;
-            return (
-              <div key={group.label} className={`nav-group${open ? ' open' : ''}`}>
-                <button type="button" className="nav-group-toggle" aria-expanded={open} aria-controls={id}
-                  onClick={() => setGroupOpen(group.label, !open)}>
-                  <span>{group.label}</span>
-                  <svg className="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </button>
-                {open && (
-                  <div id={id} className="nav-group-items">
-                    {items.map((item) => (
-                      <Link key={item.to} to={item.to} aria-current={activeSection === item.to ? 'page' : undefined}>
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <a href="#log-out" className="danger" onClick={logOut}>
-            Log out
-          </a>
-        </nav>
-        <div className="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the menu"
-          aria-valuemin={SIDEBAR.min} aria-valuemax={SIDEBAR.max} aria-valuenow={width} tabIndex={0}
-          title="Drag to resize. Double-click to reset." onPointerDown={startResize} onKeyDown={resizeByKey}
-          onDoubleClick={() => setWidth(SIDEBAR.default)} />
-      </aside>
+        <aside className="sidebar" id="sidebar" ref={aside}>
+          <div className="brand">
+            <div className="brand-name">ConnectED</div>
+            <div className="brand-sub">Exam and Gradebook System</div>
+          </div>
+          <nav className="nav" aria-label="Main">
+            {NAV_GROUPS.map((group) => {
+              const items = group.items.filter((item) => !item.show || item.show({ isAdmin, isClassTeacher }));
+              if (!items.length) return null;
+              const open = !collapsed.has(group.label);
+              const id = `nav-group-${group.label.toLowerCase()}`;
+              return (
+                <div key={group.label} className={`nav-group${open ? ' open' : ''}`}>
+                  <button type="button" className="nav-group-toggle" aria-expanded={open} aria-controls={id}
+                    onClick={() => setGroupOpen(group.label, !open)}>
+                    <span>{group.label}</span>
+                    <svg className="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </button>
+                  {open && (
+                    <div id={id} className="nav-group-items">
+                      {items.map((item) => (
+                        <Link key={item.to} to={item.to} aria-current={activeSection === item.to ? 'page' : undefined}>
+                          {item.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <a href="#log-out" className="danger" onClick={logOut}>
+              Log out
+            </a>
+          </nav>
+          <div className="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the menu"
+            aria-valuemin={SIDEBAR.min} aria-valuemax={SIDEBAR.max} aria-valuenow={width} tabIndex={0}
+            title="Drag to resize. Double-click to reset." onPointerDown={startResize} onKeyDown={resizeByKey}
+            onDoubleClick={() => setWidth(SIDEBAR.default)} />
+        </aside>
       )}
 
       <div className="main">
