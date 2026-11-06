@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { Offline, DangerButton, ActionIcon } from '../components/ui.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { GET_CLASS_SETUP } from '../api/settingsOperations.js';
+import { classLabel, isCurrent, sortClasses } from '../classLabels.js';
 import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
@@ -38,7 +39,7 @@ function MyClasses({ schoolId }) {
     repository.loadClasses(schoolId).catch((e) => setError(e.message));
   }, [schoolId]);
 
-  const sorted = (classes || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = sortClasses(classes || []);
   return (
     <>
       <div className="page-head"><h1>Your classes</h1></div>
@@ -56,7 +57,7 @@ function MyClasses({ schoolId }) {
             )}
             {sorted.map((c) => (
               <tr key={c.class_id}>
-                <td><Link to={`/classes/${c.class_id}`}>{c.name}</Link></td>
+                <td><Link to={`/classes/${c.class_id}`}>{classLabel(c, classes)}</Link></td>
                 <td>{c.year}</td>
                 <td>{(c.my_subjects || []).join(', ') || <span className="hint">No subjects</span>}</td>
                 <td>{c.is_class_teacher ? <b>Class teacher</b> : 'Subject teacher'}</td>
@@ -86,6 +87,71 @@ function EditRow({ klass, setup, onSave, onCancel }) {
       <td className="actions">
         <button type="button" className="btn link" onClick={() => onSave(f)}>Save</button>
         <button type="button" className="btn link" onClick={onCancel}>Cancel</button>
+      </td>
+    </tr>
+  );
+}
+
+/** One class in the administrator's table. */
+function ClassRow({ c, label, run, setEditing }) {
+  return (
+    <tr key={c.class_id}>
+      <td><Link to={`/classes/${c.class_id}`}>{label}</Link></td>
+      <td>{c.grade}</td>
+      <td>{c.stream}</td>
+      <td>{c.year}</td>
+      <td>{c.class_teacher_name || <span className="hint">None</span>}</td>
+      <td>{c.student_count}</td>
+      <td>{c.status === 'CURRENT' ? 'Current' : 'Past'}</td>
+      <td className="actions">
+        <Link to={`/classes/${c.class_id}/students`}
+          className="btn link" aria-label={`View students in ${c.name}`} title="Students"
+        >
+          <ActionIcon name="users" />
+        </Link>
+
+        <Link to={`/assessments?class=${c.class_id}`}
+          className="btn link" aria-label={`View assessments for ${c.name}`} title="Assessments"
+        >
+          <ActionIcon name="clipboard" />
+        </Link>
+
+        <button type="button" className="btn link" aria-label={`Edit ${c.name}`} title="Edit"
+          onClick={() => setEditing(c.class_id)}
+        >
+          <ActionIcon name="edit" />
+        </button>
+
+        <button type="button" className="btn link" aria-label={c.status === 'CURRENT' ? `Archive ${c.name}` : `Restore ${c.name}`} title={c.status === 'CURRENT' ? 'Archive' : 'Restore'}
+          onClick={() =>
+            run(
+              UPDATE_CLASS,
+              {
+                class_id: c.class_id,
+                status: c.status === 'CURRENT' ? 'PAST' : 'CURRENT',
+                _version: c._version,
+              },
+              c.status === 'CURRENT'
+                ? `${c.name} archived`
+                : `${c.name} restored`
+            )
+          }
+        >
+          <ActionIcon name={c.status === 'CURRENT' ? 'archive' : 'restore'} />
+        </button>
+
+        <DangerButton className="link" aria-label={`Delete ${c.name}`} title="Delete"
+          onClick={() =>
+            window.confirm(`Delete ${c.name}? Only an empty class can be deleted.`)
+            && run(
+              DELETE_CLASS,
+              { class_id: c.class_id, _version: c._version },
+              `${c.name} deleted`
+            )
+          }
+        >
+          <ActionIcon name="trash" />
+        </DangerButton>
       </td>
     </tr>
   );
@@ -139,9 +205,31 @@ function SchoolClasses({ schoolId }) {
 
   if (!online) return <Offline what="Managing classes" />;
 
+  // Current classes first; archived years below, newest first, folded away.
+  const ordered = sortClasses(classes);
+  const current = ordered.filter(isCurrent);
+  const pastYears = [...new Set(ordered.filter((c) => !isCurrent(c)).map((c) => c.year))];
+
+  const rowsFor = (list) => list.map((c) =>
+    editing === c.class_id ? (
+      <EditRow key={c.class_id} klass={c} setup={setup} onCancel={() => setEditing(null)}
+        onSave={(f) => run(UPDATE_CLASS, { class_id: c.class_id, ...f, _version: c._version }, `${f.name} saved`)} />
+    ) : (
+      <ClassRow key={c.class_id} c={c} label={classLabel(c, classes)} run={run} setEditing={setEditing} />
+    ));
+
+  const head = (
+    <thead>
+      <tr><th>Class</th><th>Form</th><th>Stream</th><th>Year</th><th>Class teacher</th><th>Students</th><th>Status</th><th>Action</th></tr>
+    </thead>
+  );
+
   return (
     <>
-      <div className="page-head"><h1>Classes</h1></div>
+      <div className="page-head">
+        <h1>Classes</h1>
+        <Link className="btn secondary" to="/students/past">Past students</Link>
+      </div>
       {error && <div className="card error-card">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
 
@@ -163,79 +251,25 @@ function SchoolClasses({ schoolId }) {
 
       <div className="table-wrap">
         <table>
-          <thead>
-            <tr><th>Class</th><th>Form</th><th>Stream</th><th>Year</th><th>Class teacher</th><th>Students</th><th>Status</th><th>Action</th></tr>
-          </thead>
+          {head}
           <tbody>
-            {classes.map((c) =>
-              editing === c.class_id ? (
-                <EditRow key={c.class_id} klass={c} setup={setup} onCancel={() => setEditing(null)}
-                  onSave={(f) => run(UPDATE_CLASS, { class_id: c.class_id, ...f, _version: c._version }, `${f.name} saved`)} />
-              ) : (
-                <tr key={c.class_id}>
-                  <td><Link to={`/classes/${c.class_id}`}>{c.name}</Link></td>
-                  <td>{c.grade}</td>
-                  <td>{c.stream}</td>
-                  <td>{c.year}</td>
-                  <td>{c.class_teacher_name || <span className="hint">None</span>}</td>
-                  <td>{c.student_count}</td>
-                  <td>{c.status === 'CURRENT' ? 'Current' : 'Past'}</td>
-                  <td className="actions">
-                    <Link to={`/classes/${c.class_id}/students`}
-                      className="btn link" aria-label={`View students in ${c.name}`} title="Students"
-                    >
-                      <ActionIcon name="users" />
-                    </Link>
-
-                    <Link to={`/assessments?class=${c.class_id}`}
-                      className="btn link" aria-label={`View assessments for ${c.name}`} title="Assessments"
-                    >
-                      <ActionIcon name="clipboard" />
-                    </Link>
-
-                    <button type="button" className="btn link" aria-label={`Edit ${c.name}`} title="Edit"
-                      onClick={() => setEditing(c.class_id)}
-                    >
-                      <ActionIcon name="edit" />
-                    </button>
-
-                    <button type="button" className="btn link" aria-label={c.status === 'CURRENT' ? `Archive ${c.name}` : `Restore ${c.name}`} title={c.status === 'CURRENT' ? 'Archive' : 'Restore'}
-                      onClick={() =>
-                        run(
-                          UPDATE_CLASS,
-                          {
-                            class_id: c.class_id,
-                            status: c.status === 'CURRENT' ? 'PAST' : 'CURRENT',
-                            _version: c._version,
-                          },
-                          c.status === 'CURRENT'
-                            ? `${c.name} archived`
-                            : `${c.name} restored`
-                        )
-                      }
-                    >
-                      <ActionIcon name={c.status === 'CURRENT' ? 'archive' : 'restore'} />
-                    </button>
-
-                    <DangerButton className="link" aria-label={`Delete ${c.name}`} title="Delete"
-                      onClick={() =>
-                        window.confirm(`Delete ${c.name}? Only an empty class can be deleted.`)
-                        && run(
-                          DELETE_CLASS,
-                          { class_id: c.class_id, _version: c._version },
-                          `${c.name} deleted`
-                        )
-                      }
-                    >
-                      <ActionIcon name="trash" />
-                    </DangerButton>
-                  </td>
-                </tr>
-              )
-            )}
+            {current.length === 0 && <tr className="empty"><td colSpan={8}>No current classes. Add one above, or close the school year to open the next one.</td></tr>}
+            {rowsFor(current)}
           </tbody>
         </table>
       </div>
+
+      {pastYears.map((y) => (
+        <details className="more" key={y ?? 'none'}>
+          <summary>Archived classes of {y ?? 'an unknown year'}</summary>
+          <div className="table-wrap">
+            <table>
+              {head}
+              <tbody>{rowsFor(ordered.filter((c) => !isCurrent(c) && c.year === y))}</tbody>
+            </table>
+          </div>
+        </details>
+      ))}
     </>
   );
 }

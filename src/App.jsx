@@ -20,6 +20,8 @@ import BulkInterventionForm from './pages/BulkInterventionForm.jsx';
 import SchoolRisk from './pages/SchoolRisk.jsx';
 import ClassProfile from './pages/ClassProfile.jsx';
 import Settings from './pages/Settings.jsx';
+import Promotion from './pages/Promotion.jsx';
+import PastStudents from './pages/PastStudents.jsx';
 
 function RequireAuth({ children }) {
   const { actor } = useAuth();
@@ -46,6 +48,8 @@ export default function App() {
         <Route path="school-risk" element={<RequireAdmin><SchoolRisk /></RequireAdmin>} />
         <Route path="classes" element={<Classes />} />
         <Route path="classes/:classId" element={<ClassProfile />} />
+        <Route path="classes/promotion" element={<RequireAdmin><Promotion /></RequireAdmin>} />
+        <Route path="students/past" element={<RequireAdmin><PastStudents /></RequireAdmin>} />
         <Route path="assessments" element={<Assessments />} />
         <Route path="assessments/new" element={<AssessmentForm />} />
         <Route path="assessments/:assessmentId/edit" element={<AssessmentForm />} />

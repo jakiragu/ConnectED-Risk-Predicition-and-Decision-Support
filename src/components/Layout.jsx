@@ -58,6 +58,15 @@ function breadcrumbsFor(pathname) {
     return [home, { label: 'Classes' }];
   }
 
+  // Before the /classes/<id> pattern below, which would also match these.
+  if (path === '/classes/promotion') {
+    return [home, { label: 'Classes', to: '/classes' }, { label: 'Close the school year' }];
+  }
+
+  if (path === '/students/past') {
+    return [home, { label: 'Classes', to: '/classes' }, { label: 'Past students' }];
+  }
+
   const classStudents = path.match(/^\/classes\/([^/]+)\/students$/);
   if (classStudents) {
     return [home, { label: 'Classes', to: '/classes' }, { label: 'Class', to: `/classes/${classStudents[1]}` }, { label: 'Students' }];

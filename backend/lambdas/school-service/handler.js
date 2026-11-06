@@ -15,6 +15,10 @@ import * as platform from '../../library/platformRepo.js';
 import * as school from '../../library/schoolRepo.js';
 import * as classSetupStore from '../../library/classSetupRepo.js';
 import { normaliseSetup, setupFromClasses, classFieldProblem, canonicalClassFields } from '../../library/classSetup.js';
+import { STUDENT_STATUS } from '../../library/promotion.js';
+import {
+  applyPromotion, getPromotionRun, listPastStudents, listPromotionRuns, planPromotion, revertPromotion,
+} from './promotion.js';
 
 export async function handler(event) {
   const actor = await resolveActor(event);
@@ -65,6 +69,18 @@ export async function handler(event) {
       return transferStudent(actor, input);
     case 'setStudentStatus':
       return setStudentStatus(actor, input);
+    case 'planPromotion':
+      return planPromotion(actor, args);
+    case 'getPromotionRun':
+      return getPromotionRun(actor, args);
+    case 'listPromotionRuns':
+      return listPromotionRuns(actor, args);
+    case 'listPastStudents':
+      return listPastStudents(actor, args);
+    case 'applyPromotion':
+      return applyPromotion(actor, input);
+    case 'revertPromotion':
+      return revertPromotion(actor, input);
     default:
       throw notFound(`No handler for ${event.info.fieldName}`);
   }
@@ -115,6 +131,8 @@ const classView = (c, extra = {}) => ({
   year: c.year ?? null,
   status: c.status || 'CURRENT',
   class_teacher_id: c.class_teacher_id || null,
+  promoted_from_class_id: c.promoted_from_class_id ?? null,
+  promoted_to_class_id: c.promoted_to_class_id ?? null,
   _version: c._version ?? 1,
   ...extra,
 });
@@ -127,6 +145,9 @@ const studentView = (s) => ({
   admission_no: s.admission_no,
   class_id: s.class_id,
   status: s.status || 'ACTIVE',
+  graduation_year: s.graduation_year ?? null,
+  left_year: s.left_year ?? null,
+  departure_kind: s.departure_kind ?? null, deactivation_reason: s.deactivation_reason ?? null, deactivation_date: s.deactivation_date ?? null,
   _version: s._version ?? 1,
 });
 
@@ -334,8 +355,12 @@ async function listSchoolClasses(actor, { school_id }) {
   const [classes, teachers] = await Promise.all([platform.listClasses(school_id), platform.listTeachers(school_id)]);
   const names = new Map(teachers.map((t) => [t.teacher_id, fullName(t)]));
   return Promise.all(classes.map(async (c) => classView(c, {
-    student_count: (await platform.listStudents(school_id, c.class_id)).length,
-    class_teacher_name: c.class_teacher_id ? names.get(c.class_teacher_id) ?? null : null,
+    // An archived class counts everyone it still holds (graduates, leavers); a current one its active roster.
+    student_count: (await platform.listStudents(school_id, c.class_id, { includeInactive: (c.status || 'CURRENT') !== 'CURRENT' })).length,
+    // An archived class keeps who its class teacher was (former_class_teacher_id).
+    class_teacher_name: (c.class_teacher_id || c.former_class_teacher_id)
+      ? names.get(c.class_teacher_id || c.former_class_teacher_id) ?? null
+      : null,
   })));
 }
 
@@ -356,12 +381,14 @@ function readClassFields(input, { partial = false } = {}) {
   return out;
 }
 
-async function assertNameFree(schoolId, name, classId = null) {
+/** Names are unique within a school year: Form 4 East 2026 and Form 4 East 2027 are different classes. */
+async function assertNameFree(schoolId, name, year, classId = null) {
   const taken = (await platform.listClasses(schoolId)).some(
-    (c) => c.class_id !== classId && c.name.toLowerCase() === name.toLowerCase()
+    (c) => c.class_id !== classId && Number(c.year) === Number(year) && c.name.toLowerCase() === name.toLowerCase()
   );
-  if (taken) throw validation(`There is already a class called ${name}`, 'name');
+  if (taken) throw validation(`There is already a class called ${name} in ${year}`, 'name');
 }
+
 
 // --------------------------------------------------------------- class setup
 
@@ -372,7 +399,7 @@ async function assertNameFree(schoolId, name, classId = null) {
 async function getClassSetup(actor, { school_id }) {
   const saved = await classSetupStore.get(school_id);
   if (saved) {
-    return { school_id, forms: saved.forms, streams: saved.streams, is_default: false, updated_at: saved.updated_at ?? null, _version: saved._version };
+    return { school_id, forms: saved.forms, streams: saved.streams, progression_paths: saved.progression_paths ?? null, is_default: false, updated_at: saved.updated_at ?? null, _version: saved._version };
   }
   const derived = setupFromClasses(await platform.listClasses(school_id));
   return { school_id, ...derived, is_default: true, updated_at: null, _version: 0 };
@@ -380,11 +407,12 @@ async function getClassSetup(actor, { school_id }) {
 
 async function saveClassSetup(actor, input) {
   assertAdmin(actor);
-  const { setup, problems } = normaliseSetup(input);
+  const previous = await classSetupStore.get(input.school_id);
+  const { setup, problems } = normaliseSetup({ ...input, progression_paths: input.progression_paths ?? previous?.progression_paths });
   if (problems.length) throw validation(problems[0], 'class_setup');
   try {
     const saved = await classSetupStore.save(input.school_id, setup, input._version ?? 0, actor);
-    return { school_id: input.school_id, forms: saved.forms, streams: saved.streams, is_default: false, updated_at: saved.updated_at, _version: saved._version };
+    return { school_id: input.school_id, forms: saved.forms, streams: saved.streams, progression_paths: saved.progression_paths ?? null, is_default: false, updated_at: saved.updated_at, _version: saved._version };
   } catch (e) {
     if (e.name !== 'ConditionalCheckFailedException') throw e;
     throw conflict('Someone else changed the forms and streams. Reload and try again.');
@@ -407,7 +435,7 @@ async function createClass(actor, input) {
   assertAdmin(actor);
   const fields = await checkClassFields(input.school_id, readClassFields(input));
   const name = fields.name || `${fields.grade} ${fields.stream}`;
-  await assertNameFree(input.school_id, name);
+  await assertNameFree(input.school_id, name, fields.year);
   const item = await school.createClass(input.school_id, {
     class_id: `cls_${ulid().toLowerCase()}`, ...fields, name, status: 'CURRENT', created_by: actor.sub,
   });
@@ -423,7 +451,9 @@ async function updateClass(actor, input) {
     grade: read.grade != null && read.grade !== existing.grade ? read.grade : null,
     stream: read.stream != null && read.stream !== existing.stream ? read.stream : null,
   });
-  if (patch.name) await assertNameFree(input.school_id, patch.name, existing.class_id);
+  if (patch.name || patch.year != null) {
+    await assertNameFree(input.school_id, patch.name || existing.name, patch.year ?? existing.year, existing.class_id);
+  }
   const updated = await school.updateClass(input.school_id, input.class_id, patch, input._version).catch(staleOr);
   return classView(updated);
 }
@@ -518,6 +548,7 @@ async function updateStudent(actor, input) {
 async function transferStudent(actor, input) {
   assertAdmin(actor);
   const existing = await loadStudent(input.school_id, input.student_id);
+  if (existing.status === STUDENT_STATUS.GRADUATED) throw validation('This student has graduated, so they cannot be moved to another class', 'to_class_id');
   if (existing.class_id === input.to_class_id) throw validation('The student is already in that class', 'to_class_id');
   const destination = await loadClass(input.school_id, input.to_class_id);
   if (destination.status !== 'CURRENT') throw validation(`${destination.name} is archived`, 'to_class_id');
@@ -537,7 +568,23 @@ async function setStudentStatus(actor, input) {
   const existing = await loadStudent(input.school_id, input.student_id);
   assertClassTeacherOrAdmin(actor, existing.class_id);
   if (!['ACTIVE', 'INACTIVE'].includes(input.status)) throw validation('Status must be ACTIVE or INACTIVE', 'status');
+  if (existing.status === STUDENT_STATUS.GRADUATED) {
+    throw validation('This student has graduated. Undo the promotion that graduated them to change this.', 'status');
+  }
+  if (input.status === 'ACTIVE' && existing.class_id) {
+    const klass = await platform.klass(input.school_id, existing.class_id);
+    if (klass && klass.status !== 'CURRENT') {
+      throw validation(`${klass.name}${klass.year ? ` ${klass.year}` : ''} is archived. Move the student to a current class first.`, 'status');
+    }
+  }
   if (existing.status === input.status) return studentView(existing);
-  const updated = await school.setStudentStatus(input.school_id, input.student_id, input.status, input._version, actor).catch(staleOr);
+  const metadata = {};
+  if (input.status === 'INACTIVE') {
+    if (!['LEFT', 'TEMPORARY'].includes(input.departure_kind)) throw validation('Choose permanently left or temporarily deactivated', 'departure_kind');
+    if (!String(input.deactivation_reason || '').trim()) throw validation('Enter the reason for deactivation', 'deactivation_reason');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.deactivation_date || '') || !Number.isFinite(Date.parse(input.deactivation_date)) || new Date(input.deactivation_date).toISOString().slice(0, 10) !== input.deactivation_date) throw validation('Enter a valid effective date', 'deactivation_date');
+    Object.assign(metadata, { departure_kind: input.departure_kind, deactivation_reason: input.deactivation_reason.trim().slice(0, 500), deactivation_date: input.deactivation_date, left_year: Number(input.deactivation_date.slice(0, 4)) });
+  }
+  const updated = await school.setStudentStatus(input.school_id, input.student_id, input.status, input._version, actor, metadata).catch(staleOr);
   return studentView(updated);
 }

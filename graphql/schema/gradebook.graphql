@@ -65,6 +65,9 @@ type Score {
 enum Role { Admin Teacher }
 enum PersonStatus { ACTIVE INACTIVE }
 enum ClassStatus { CURRENT PAST }
+# A student's status. GRADUATED is set only by a promotion (and cleared only by undoing it);
+# setStudentStatus still takes PersonStatus (ACTIVE | INACTIVE).
+enum StudentStatus { ACTIVE INACTIVE GRADUATED }
 
 type Student {
   student_id: ID!
@@ -72,8 +75,13 @@ type Student {
   first_name: String!
   last_name: String!
   admission_no: String!
-  class_id: ID
-  status: String
+  class_id: ID                    # a graduate stays on their final class
+  status: String                  # StudentStatus value
+  graduation_year: Int            # set by a promotion that graduated the student
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
+  left_year: Int                  # set by a promotion that recorded the student as leaving
   _version: Int
 }
 
@@ -86,6 +94,8 @@ type Class {
   year: Int
   status: String
   class_teacher_id: ID
+  promoted_from_class_id: ID      # a class a promotion created: the class it continues
+  promoted_to_class_id: ID        # a class a promotion archived: the class it continues as
   class_teacher_name: String      # listSchoolClasses only
   student_count: Int              # listSchoolClasses only
   my_subjects: [String!]          # listMyClasses: subjects this user may create papers and enter marks for
@@ -317,6 +327,7 @@ type GradingPreview {
 type ClassSetup {
   school_id: ID!
   forms: [String!]!
+  progression_paths: [String!]
   streams: [String!]!
   is_default: Boolean!            # true: never saved; taken from existing classes and not enforced
   updated_at: AWSDateTime
@@ -326,6 +337,7 @@ type ClassSetup {
 input SaveClassSetupInput {
   school_id: ID!
   forms: [String!]!
+  progression_paths: [String!]
   streams: [String!]!
   _version: Int!
 }
@@ -1104,6 +1116,9 @@ input TransferStudentInput {
 }
 
 input SetStudentStatusInput {
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
   school_id: ID!
   student_id: ID!
   status: PersonStatus!
@@ -1346,6 +1361,8 @@ type ProfileStudent {
   last_name: String!
   class_id: ID
   class_name: String
+  status: String               # StudentStatus value
+  graduation_year: Int
 }
 
 type ProfileSubjectResult {
@@ -1364,6 +1381,8 @@ type CheckpointResults {
 type StudentRiskProfile {
   student: ProfileStudent!
   academic_year: Int
+  available_years: [Int!]!     # years with published results for this student, newest first
+  year_class_name: String      # the class the student was in during academic_year
   scope: RiskScope!
   current: Boolean!            # false: results were published later and no prediction followed yet
   last_published_point: String
@@ -1448,6 +1467,174 @@ type SchoolRiskOverview {
   interventions_logged: Int!
 }
 
+# ------------------------------------------------------------ year-end promotion
+# An operational extension: closes a school year by moving students into the
+# next year's classes. Administrators only.
+
+enum PromotionAction { PROMOTE REPEAT GRADUATE LEAVE }
+enum PromotionRunStatus { APPLYING APPLIED REVERTED }
+
+type PromotionClassRef {
+  key: String!                 # "<level>|<stream>": names a destination before it exists
+  class_id: ID                 # null: the promotion will create it
+  name: String!
+  grade: String!
+  stream: String!
+  year: Int!
+  level: Int!
+  exists: Boolean!
+}
+
+type PromotionStudentPlan {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  average: Float
+  pass_mark: Float!
+  result_problem: String
+  override_reason: String
+  default_action: PromotionAction
+  action: PromotionAction
+  to_key: String
+  to_class_id: ID
+  to_class_name: String
+  overridden: Boolean!
+}
+
+type PromotionClassPlan {
+  source_class_id: ID!
+  source_name: String!
+  grade: String!
+  stream: String!
+  level: Int
+  publication_status: String!
+  graduating: Boolean!
+  class_teacher_name: String
+  active_count: Int!
+  inactive_count: Int!         # deactivated students: they stay on the archived class
+  destination: PromotionClassRef          # null for the final level
+  repeat_destination: PromotionClassRef
+  students: [PromotionStudentPlan!]!
+}
+
+type PromotionBlocker {
+  code: String!                # NO_CLASSES | NO_TERM3 | UNPUBLISHED | UNKNOWN_LEVEL | NAME_TAKEN | INVALID_CHOICE
+  class_id: ID
+  message: String!
+}
+
+type PromotionSummary {
+  promote: Int!
+  repeat: Int!
+  graduate: Int!
+  leave: Int!
+  classes_created: Int!
+  classes_archived: Int!
+}
+
+type PromotionSkip {
+  student_id: ID!
+  name: String!
+  reason: String!
+}
+
+type PromotionDecision {
+  student_id: ID!
+  name: String!
+  automatic_action: PromotionAction
+  action: PromotionAction!
+  average: Float
+  pass_mark: Float
+  overridden: Boolean
+  override_reason: String
+  overridden_by: ID
+  from_class_id: ID!
+  to_class_id: ID
+}
+
+type PromotionTeacherPreview {
+  teacher_id: ID!
+  name: String!
+  excluded: Boolean!
+  description: String!
+  conflicts: [String!]!
+}
+
+type PromotionRun {
+  teacher_strategy: String!
+  decisions: [PromotionDecision!]!
+  run_id: ID!
+  from_year: Int!
+  to_year: Int!
+  status: PromotionRunStatus!
+  copy_teachers: Boolean!
+  summary: PromotionSummary!
+  skipped: [PromotionSkip!]!   # students changed by someone else after the plan was made
+  skipped_teachers: [String!]!
+  interventions_stopped: Int!
+  created_by_name: String
+  created_at: AWSDateTime
+  applied_at: AWSDateTime
+  reverted_at: AWSDateTime
+  can_revert: Boolean!
+  revert_blocked_reason: String
+}
+
+type PromotionPlan {
+  review_token: String!
+  teacher_strategy: String!
+  teacher_preview: [PromotionTeacherPreview!]!
+  teacher_warnings: [String!]!
+  from_year: Int!
+  to_year: Int!
+  levels: [String!]!                      # the school's numbered forms in promotion order
+  final_levels: [String!]!                # the forms that graduate (the last of each group, e.g. Form 4, Grade 12)
+  blockers: [PromotionBlocker!]!
+  summary: PromotionSummary!
+  choices: [PromotionClassRef!]!          # every next-year class a student may be sent to
+  classes: [PromotionClassPlan!]!
+  run: PromotionRun                       # set when this year is already promoted (or being promoted)
+}
+
+type PastStudent {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  status: StudentStatus!
+  graduation_year: Int
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
+  left_year: Int
+  class_id: ID
+  class_name: String           # their final class, with its year
+}
+
+input PromotionOverrideInput {
+  reason: String
+  student_id: ID!
+  action: PromotionAction!
+  to_key: String               # a PromotionClassRef key; default: same stream
+}
+
+input ApplyPromotionInput {
+  school_id: ID!
+  from_year: Int!
+  overrides: [PromotionOverrideInput!]
+  copy_teachers: Boolean
+  teacher_strategy: String
+  excluded_teachers: [ID!]
+  review_token: String!
+  idempotency_key: String!     # made by the client; sending the same request again returns the same run
+}
+
+input RevertPromotionInput {
+  school_id: ID!
+  run_id: ID!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   getAssessmentConfig(school_id: ID!): AssessmentConfig!
@@ -1487,6 +1674,10 @@ type Query {
   listStudentInterventions(school_id: ID!, student_id: ID!): [Intervention!]!
   listInterventionMethods(school_id: ID!, factor: String): [InterventionMethod!]!
   getRiskModel(school_id: ID!): RiskModel!                                                                                # Admin
+  planPromotion(school_id: ID!, from_year: Int!, overrides: [PromotionOverrideInput!], teacher_strategy: String, excluded_teachers: [ID!]): PromotionPlan!   # Admin; changes nothing
+  getPromotionRun(school_id: ID!, run_id: ID!): PromotionRun!                                            # Admin
+  listPromotionRuns(school_id: ID!): [PromotionRun!]!                                                    # Admin
+  listPastStudents(school_id: ID!, year: Int): [PastStudent!]!                                           # Admin; graduates and leavers
 }
 
 type Mutation {
@@ -1531,4 +1722,6 @@ type Mutation {
   runRiskPredictions(input: RunRiskPredictionsInput!): RiskRun!               # Admin; queues a fresh run
   saveIntervention(input: SaveInterventionInput!): Intervention!              # Admin | class teacher | subject teacher (own subjects)
   deleteIntervention(input: DeleteInterventionInput!): Intervention!
+  applyPromotion(input: ApplyPromotionInput!): PromotionRun!                  # Admin; resumable, idempotent
+  revertPromotion(input: RevertPromotionInput!): PromotionRun!                # Admin; until the new year has records
 }

@@ -8,6 +8,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
+import { classLabels } from '../classLabels.js';
 
 const pct = (p) => `${Math.round(p * 100)}%`;
 const when = (iso) => (iso ? new Date(iso).toLocaleString() : '');
@@ -49,7 +50,7 @@ export default function Dashboard() {
     });
   }, [actor.schoolId]);
 
-  const className = useMemo(() => new Map(classes.map((c) => [c.class_id, c.name])), [classes]);
+  const className = useMemo(() => classLabels(classes), [classes]);
   const found = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2) return [];

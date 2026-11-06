@@ -22,6 +22,7 @@ import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
 import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 import { DangerButton, ActionIcon } from '../components/ui.jsx';
+import { classLabel, sortClasses } from '../classLabels.js';
 
 /** Exam order; older rows store 'Mid-term', newer ones 'MIDTERM': both are the same exam. */
 const TYPE_ORDER = { OPENER: 0, MIDTERM: 1, ENDTERM: 2 };
@@ -152,7 +153,7 @@ export default function Assessments() {
           aria-label="Class"
           value={classId}
           onChange={(v) => go({ class: v })}
-          options={[...classes].sort((a, b) => a.name.localeCompare(b.name)).map((c) => ({ value: c.class_id, label: c.name }))}
+          options={sortClasses(classes).map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))}
           placeholder="Choose a class"
         />
         {classId && subjectsHere.length > 1 && (

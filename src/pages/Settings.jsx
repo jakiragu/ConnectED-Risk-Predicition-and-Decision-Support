@@ -190,7 +190,16 @@ export default function Settings() {
         <section className="settings-body" aria-label={SECTIONS.find((s) => s.id === section)?.label}>
           {section === 'school' && <SchoolSection />}
           {section === 'calendar' && <Terms embedded />}
-          {section === 'classes' && <ClassSetupSettings schoolId={actor.schoolId} onDirtyChange={handlers.classes} />}
+          {section === 'classes' && (
+            <div className="stack">
+              <ClassSetupSettings schoolId={actor.schoolId} onDirtyChange={handlers.classes} />
+              <div className="card settings-card stack">
+                <h2>Student promotion and year rollover</h2>
+                <p className="hint">Review final results, promotion exceptions and next year's teacher assignments before closing the school year.</p>
+                <div><Link className="btn" to="/classes/promotion">Promote students</Link></div>
+              </div>
+            </div>
+          )}
           {section === 'exams' && <ExamsSection schoolId={actor.schoolId} online={online} onDirty={handlers.exams} />}
           {section === 'grading' && <GradingSettings schoolId={actor.schoolId} onDirtyChange={handlers.grading} />}
           {section === 'subjects' && <SubjectsSection />}

@@ -15,6 +15,7 @@ export async function resolveActor(event) {
     name: [teacher.first_name, teacher.last_name].filter(Boolean).join(' ') || id.email,
     access: {
       assignments: teacher.assignments || [],
+      historicalClassTeacherOf: teacher.historical_class_teacher_of || [],
       classTeacherOf: teacher.class_teacher_of || null,
     },
   };

@@ -26,7 +26,7 @@ export const GET_GRADING_PREVIEW = `
     getGradingPreview(school_id: $school_id) { term_id term_name marks }
   }`;
 
-const CLASS_SETUP_FIELDS = 'school_id forms streams is_default updated_at _version';
+const CLASS_SETUP_FIELDS = 'school_id forms streams progression_paths is_default updated_at _version';
 
 export const GET_CLASS_SETUP = `
   query GetClassSetup($school_id: ID!) {

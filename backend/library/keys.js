@@ -63,6 +63,15 @@ export const sk = {
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,
+  // Year-end promotion. The lock makes a school year promotable once (again only after an undo);
+  // the run records what was decided; one move item per student makes the run resumable and undoable.
+  // 'PROMOTION#' never matches 'PROMOTIONLOCK#' or 'PROMOTIONMOVE#' (the character after PROMOTION differs).
+  promotionLock: (fromYear) => `PROMOTIONLOCK#${fromYear}`,
+  promotionLockPrefix: () => 'PROMOTIONLOCK#',
+  promotionRun: (runId) => `PROMOTION#${runId}`,
+  promotionRunPrefix: () => 'PROMOTION#',
+  promotionMove: (runId, studentId) => `PROMOTIONMOVE#${runId}#${studentId}`,
+  promotionMovePrefix: (runId) => `PROMOTIONMOVE#${runId}#`,
 };
 
 export const gsi1 = {
