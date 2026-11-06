@@ -1,6 +1,6 @@
 import { assertAdmin, isAdmin, isClassTeacherOf, readableClassIds, subjectsITeach } from '../../library/authz.js';
 import { recordingStatus, SUBJECTS } from '../../library/assessment.js';
-import { termStatus, todayIn } from '../../library/calendar.js';
+import { currentTerm as selectCurrentTerm, currentYear, todayIn } from '../../library/calendar.js';
 import { canSeeFactor, CHECKPOINT_ORDER, INTERVENTION_STATUS, pointIndex, scopeFactors, scopeTargets, scopeView } from '../../library/decisionSupport.js';
 import { explain } from '../../library/explanations.js';
 import { POINT_NAMES } from '../../library/features.js';
@@ -10,7 +10,7 @@ import * as assessments from '../../library/assessmentRepo.js';
 import * as interventions from '../../library/interventionRepo.js';
 import * as platform from '../../library/platformRepo.js';
 import * as risk from '../../library/riskRepo.js';
-import { currentYear, latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
+import { latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
 
 /**
  * Decision support reads (FR-11, US-01..US-06): a student's risk profile, a
@@ -109,7 +109,7 @@ async function latestByStudent(schoolId, year) {
 }
 
 export async function getRiskDashboard(actor, { school_id }) {
-  const [allClasses, terms] = await Promise.all([platform.listClasses(school_id), platform.listTerms(school_id)], platform.listTeachers(school_id));
+  const [allClasses, terms, teachers] = await Promise.all([platform.listClasses(school_id), platform.listTerms(school_id), platform.listTeachers(school_id)]);
   const teacherNameById = new Map(
     teachers.map((teacher) => [
       teacher.teacher_id,
@@ -120,7 +120,7 @@ export async function getRiskDashboard(actor, { school_id }) {
   const classes = allClasses.filter((c) => (ids ? ids.has(c.class_id) : c.status !== 'PAST'));
   const today = todayIn(zone());
   const year = currentYear(terms, today);
-  const currentTerm = terms.find((t) => Number(t.academic_year) === Number(year) && termStatus(t, today) === 'CURRENT') ?? null;
+  const currentTerm = selectCurrentTerm(terms, today);
   const latest = await latestByStudent(school_id, year);
 
   const atRisk = [];

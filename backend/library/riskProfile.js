@@ -1,5 +1,5 @@
 import { isAdmin, isClassTeacherOf, subjectsITeach } from './authz.js';
-import { todayIn } from './calendar.js';
+import { todayIn, currentYear } from './calendar.js';
 import { checkpointPoint, factorSeries, outcomeOf, pointIndex, riskScope, scopeView, targetForFactor, canSeeFactor } from './decisionSupport.js';
 import { targetsOf } from './targets.js';
 import * as history from './historyRepo.js';
@@ -17,14 +17,6 @@ export const zone = () => process.env.SCHOOL_TIME_ZONE || 'Africa/Nairobi';
 /** The factors the actor may see in a class, or null for no access. */
 export const scopeFor = (actor, classId) =>
   riskScope({ isAdmin: isAdmin(actor), isClassTeacher: isClassTeacherOf(actor, classId), subjects: subjectsITeach(actor, classId) });
-
-/** The school year in progress: the latest year with a term that has started (else the earliest planned). */
-export function currentYear(terms, today = todayIn(zone())) {
-  const years = terms.map((t) => Number(t.academic_year)).filter(Number.isFinite);
-  const started = terms.filter((t) => t.start_date && t.start_date <= today).map((t) => Number(t.academic_year)).filter(Number.isFinite);
-  if (started.length) return Math.max(...started);
-  return years.length ? Math.min(...years) : null;
-}
 
 /**
  * A student's year: predictions and published checkpoint results, each with its
