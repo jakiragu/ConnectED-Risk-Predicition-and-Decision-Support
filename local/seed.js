@@ -5,6 +5,8 @@ import { ddb } from '../backend/library/client.js';
 import { TABLE, pk, sk, gsi1, gsi2, gsi3 } from '../backend/library/keys.js';
 import { ensureTable } from './create-table.js';
 import * as identity from '../backend/library/identity.js';
+import * as platformIdentity from '../backend/library/platformIdentity.js';
+import { putStaff, registrationItems } from '../backend/library/platformStore.js';
 import { DEFAULT_ASSESSMENT_SCHEME } from '../backend/library/assessmentConfig.js';
 import { pathToFileURL } from 'node:url';
 
@@ -53,15 +55,31 @@ const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
 const items = [];
 const now = new Date().toISOString();
 
+const SCHOOL_PLACE = {
+  name: 'Saint Innocent High School',
+  country: 'KE',
+  region: 'Nairobi',
+  town: 'Kasarani',
+  time_zone: 'Africa/Nairobi',
+};
+
 items.push({
   PK: pk(SCHOOL),
   SK: 'SCHOOL#PROFILE',
   entity: 'School',
   school_id: SCHOOL,
-  name: 'Saint Innocent High School',
-  country: 'KE',
-  region: 'Nairobi',
+  ...SCHOOL_PLACE,
+  status: 'ACTIVE',
 });
+
+// The Angaza console's registration of the same school, as createSchool would have written it.
+{
+  const { registration, claim } = registrationItems(SCHOOL, SCHOOL_PLACE, { byName: 'Seed data' });
+  items.push(registration, claim);
+}
+
+// An Angaza staff member for the console (/angaza). Skipped if the Angaza pool is not set up yet.
+const ANGAZA_STAFF = { email: 'angaza.admin@angazacenter.org', first_name: 'Angaza', last_name: 'Admin' };
 
 items.push({
   PK: pk(SCHOOL),
@@ -603,6 +621,17 @@ async function run() {
 
   const seeded = seedTestAssessmentsAndScores(subs.john);
 
+  let angaza = null;
+  if (process.env.PLATFORM_COGNITO_USER_POOL_ID) {
+    const acct = await platformIdentity.createStaffAccount({
+      email: ANGAZA_STAFF.email,
+      name: `${ANGAZA_STAFF.first_name} ${ANGAZA_STAFF.last_name}`,
+    });
+    await platformIdentity.setPermanentPassword(acct.sub, DEV_PASSWORD);
+    await putStaff({ staff_id: acct.sub, ...ANGAZA_STAFF });
+    angaza = ANGAZA_STAFF.email;
+  }
+
   await batchWriteAll(items);
 
   console.log(`Seeded ${items.length} items into ${TABLE}`);
@@ -629,6 +658,9 @@ async function run() {
       `  ${teacher.role.padEnd(8)} ${teacher.email.padEnd(36)} ${teaches}${classTeacher}`
     );
   }
+  console.log(angaza
+    ? `  Angaza   ${angaza.padEnd(36)} the Angaza console at /angaza`
+    : '\n  No Angaza console account: PLATFORM_COGNITO_USER_POOL_ID is not set. Run `npm run aws:setup`, then seed again.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

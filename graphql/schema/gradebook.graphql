@@ -1635,6 +1635,102 @@ input RevertPromotionInput {
   run_id: ID!
 }
 
+# ---------------------------------------------------------------- Angaza console
+# Reached only with an Angaza account (the platform sign-in pool); platform-service
+# refuses school accounts, and school services refuse Angaza accounts. On AppSync
+# the platform pool is an additional Cognito authorisation mode; the services tell
+# the pools apart by the token's issuer (backend/library/platformAuth.js).
+
+enum SchoolStatus { ACTIVE SUSPENDED }
+enum AdminSignIn { SIGNED_IN WAITING DISABLED UNKNOWN }   # WAITING: has not used their temporary password yet
+
+type PlatformSchool {
+  school_id: ID!
+  name: String!
+  country: String!              # ISO 3166 alpha-2, one of backend/library/locations.js
+  country_name: String!
+  region: String!               # county, district, province or region, as the country calls it
+  region_label: String!         # "County", "District", ...
+  town: String                  # nearest town or area, optional
+  time_zone: String!            # IANA zone, from the country
+  status: SchoolStatus!
+  suspended_reason: String      # seen by Angaza staff only
+  suspended_at: AWSDateTime
+  suspended_by_name: String
+  reactivated_at: AWSDateTime
+  reactivated_by_name: String
+  created_at: AWSDateTime
+  created_by_name: String
+  updated_at: AWSDateTime
+  active_admin_count: Int
+  _version: Int!
+}
+
+type SchoolAdmin {
+  teacher_id: ID!
+  first_name: String!
+  last_name: String!
+  email: String!
+  status: PersonStatus!
+  sign_in: AdminSignIn!
+}
+
+type SchoolUsage {                 # totals only: no student records reach the console
+  classes: Int!                    # current classes
+  teachers: Int!                   # active staff accounts, administrators included
+  students: Int!                   # active students
+}
+
+type PlatformSchoolDetail {
+  school: PlatformSchool!
+  admins: [SchoolAdmin!]!
+  usage: SchoolUsage!
+}
+
+type SchoolAdminAccount {
+  admin: SchoolAdmin!
+  temporary_password: String       # shown once; the administrator chooses their own at first sign-in
+}
+
+input CreateSchoolInput {
+  name: String!
+  country: String!
+  region: String!
+  town: String
+}
+
+input UpdateSchoolInput {
+  school_id: ID!
+  name: String!
+  country: String!
+  region: String!
+  town: String
+  _version: Int!
+}
+
+input SuspendSchoolInput {
+  school_id: ID!
+  reason: String!
+  _version: Int!
+}
+
+input SchoolRefInput {
+  school_id: ID!
+  _version: Int!
+}
+
+input AddSchoolAdminInput {
+  school_id: ID!
+  first_name: String!
+  last_name: String!
+  email: String!
+}
+
+input ResetSchoolAdminPasswordInput {
+  school_id: ID!
+  teacher_id: ID!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   getAssessmentConfig(school_id: ID!): AssessmentConfig!
@@ -1678,6 +1774,9 @@ type Query {
   getPromotionRun(school_id: ID!, run_id: ID!): PromotionRun!                                            # Admin
   listPromotionRuns(school_id: ID!): [PromotionRun!]!                                                    # Admin
   listPastStudents(school_id: ID!, year: Int): [PastStudent!]!                                           # Admin; graduates and leavers
+
+  listSchools: [PlatformSchool!]!                                             # Angaza staff
+  getSchool(school_id: ID!): PlatformSchoolDetail!                            # Angaza staff
 }
 
 type Mutation {
@@ -1724,4 +1823,11 @@ type Mutation {
   deleteIntervention(input: DeleteInterventionInput!): Intervention!
   applyPromotion(input: ApplyPromotionInput!): PromotionRun!                  # Admin; resumable, idempotent
   revertPromotion(input: RevertPromotionInput!): PromotionRun!                # Admin; until the new year has records
+
+  createSchool(input: CreateSchoolInput!): PlatformSchool!                    # Angaza staff
+  updateSchool(input: UpdateSchoolInput!): PlatformSchool!                    # Angaza staff
+  suspendSchool(input: SuspendSchoolInput!): PlatformSchool!                  # Angaza staff; blocks the school's users, keeps its records
+  reactivateSchool(input: SchoolRefInput!): PlatformSchool!                   # Angaza staff
+  addSchoolAdmin(input: AddSchoolAdminInput!): SchoolAdminAccount!            # Angaza staff; creates the sign-in account
+  resetSchoolAdminPassword(input: ResetSchoolAdminPasswordInput!): SchoolAdminAccount!   # Angaza staff; administrators only
 }

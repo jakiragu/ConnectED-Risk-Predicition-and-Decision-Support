@@ -7,6 +7,7 @@ import { handler as attendanceService } from '../backend/lambdas/attendance-serv
 import { handler as featureService } from '../backend/lambdas/feature-service/handler.js';
 import { handler as riskService } from '../backend/lambdas/risk-service/handler.js';
 import { handler as interventionService } from '../backend/lambdas/intervention-service/handler.js';
+import { handler as platformService } from '../backend/lambdas/platform-service/handler.js';
 
 export const RESOLVERS = {
   Query: {
@@ -50,6 +51,8 @@ export const RESOLVERS = {
     getPromotionRun: schoolService,
     listPromotionRuns: schoolService,
     listPastStudents: schoolService,
+    listSchools: platformService,
+    getSchool: platformService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -88,6 +91,12 @@ export const RESOLVERS = {
     setStudentStatus: schoolService,
     applyPromotion: schoolService,
     revertPromotion: schoolService,
+    createSchool: platformService,
+    updateSchool: platformService,
+    suspendSchool: platformService,
+    reactivateSchool: platformService,
+    addSchoolAdmin: platformService,
+    resetSchoolAdminPassword: platformService,
     createTerm: calendarService,
     updateTerm: calendarService,
     submitAttendance: attendanceService,

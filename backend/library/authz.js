@@ -1,4 +1,5 @@
 import { forbidden, unauthorized } from './errors.js';
+import { isPlatformIdentity } from './platformAuth.js';
 
 export const ROLE = {
   ADMIN: 'Admin',
@@ -10,6 +11,8 @@ export const ROLES = Object.values(ROLE);
 export function identityOf(event) {
   const id = event?.identity;
   if (!id?.sub) throw unauthorized('No authenticated identity on request');
+  // An Angaza account never acts inside a school, even if a token were somehow given a school claim.
+  if (isPlatformIdentity(event)) throw unauthorized('Angaza accounts cannot open a school’s gradebook. Use the Angaza console.');
   const claims = id.claims || {};
   const schoolId = claims['custom:school_id'];
   if (!schoolId) throw unauthorized('Token carries no school scope');

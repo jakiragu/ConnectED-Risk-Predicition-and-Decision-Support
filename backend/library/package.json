@@ -19,6 +19,7 @@
     "./decision": "./decisionSupport.js",
     "./grading": "./grading.js",
     "./classProfile": "./classProfile.js",
-    "./classSetup": "./classSetup.js"
+    "./classSetup": "./classSetup.js",
+    "./locations": "./locations.js"
   }
 }

@@ -43,7 +43,7 @@ function SchoolSection() {
         <dt>School ID</dt><dd><code>{actor.schoolId}</code></dd>
         <dt>Who can change settings</dt><dd>Administrators</dd>
       </dl>
-      <p className="hint">School details cannot be edited here yet.</p>
+      <p className="hint">Angaza keeps your school’s name and location. To change them, contact Angaza.</p>
     </div>
   );
 }

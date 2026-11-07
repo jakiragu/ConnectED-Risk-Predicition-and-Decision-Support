@@ -285,3 +285,45 @@ export function Sparkline({ points, width = 120, height = 32 }) {
     </svg>
   );
 }
+
+/**
+ * A modal question that needs an answer before the page carries on (suspend a
+ * school, reset a password). Focus moves into it and stays there, Escape or the
+ * backdrop closes it (unless it is busy), and focus returns to whatever opened it.
+ */
+export function Dialog({ open, title, children, onClose, busy = false, labelId = 'dialog-title' }) {
+  const box = useRef(null);
+  const opener = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    opener.current = document.activeElement;
+    const first = box.current?.querySelector('[data-autofocus], input, textarea, select, button');
+    first?.focus();
+    return () => opener.current?.focus?.();
+  }, [open]);
+
+  if (!open) return null;
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape' && !busy) {
+      e.stopPropagation();
+      onClose();
+    }
+    if (e.key !== 'Tab') return;
+    const items = [...box.current.querySelectorAll('a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')];
+    if (!items.length) return;
+    const [first, last] = [items[0], items[items.length - 1]];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  return (
+    <div className="backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} ref={box} onKeyDown={onKeyDown}>
+        <h2 id={labelId}>{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
