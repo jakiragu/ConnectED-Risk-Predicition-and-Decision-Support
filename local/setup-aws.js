@@ -16,12 +16,16 @@ import {
 } from '@aws-sdk/client-cognito-identity-provider';
 import { cognito, s3, sfn } from '../backend/library/client.js';
 import { ROLES } from '../backend/library/authz.js';
+import { PLATFORM_GROUP } from '../backend/library/platformIdentity.js';
 
 const region = process.env.AWS_REGION || 'eu-west-1';
 const ACCOUNT = '123456789012'; // Step Functions Local's fixed account id
 const MACHINE = process.env.REPORT_STATE_MACHINE_NAME || 'gradebook-report-cards';
 const POOL = process.env.COGNITO_USER_POOL_NAME || 'gradebook';
 const CLIENT = 'gradebook-web';
+// Angaza staff sign in to their own pool: no school attribute exists there at all.
+const PLATFORM_POOL = process.env.PLATFORM_COGNITO_USER_POOL_NAME || 'connected-angaza';
+const PLATFORM_CLIENT = 'angaza-console';
 
 function setEnv(values) {
   const file = new URL('../.env', import.meta.url);
@@ -79,6 +83,40 @@ async function ensureUserPool() {
   return `${poolId}, client ${clientId}, groups ${ROLES.join('/')}${changed.length ? ` (wrote ${changed.join(', ')} to .env)` : ''}`;
 }
 
+/** The Angaza staff pool, its console client and its one group. Same steps as the school pool. */
+async function ensurePlatformPool() {
+  const { UserPools = [] } = await cognito.send(new ListUserPoolsCommand({ MaxResults: 60 }));
+  let poolId = UserPools.find((p) => p.Name === PLATFORM_POOL)?.Id;
+  if (!poolId) {
+    const res = await cognito.send(new CreateUserPoolCommand({ PoolName: PLATFORM_POOL, UsernameAttributes: ['email'] }));
+    poolId = res.UserPool.Id;
+  }
+  const { UserPoolClients = [] } = await cognito.send(new ListUserPoolClientsCommand({ UserPoolId: poolId, MaxResults: 60 }));
+  let clientId = UserPoolClients.find((c) => c.ClientName === PLATFORM_CLIENT)?.ClientId;
+  if (!clientId) {
+    const res = await cognito.send(new CreateUserPoolClientCommand({
+      UserPoolId: poolId,
+      ClientName: PLATFORM_CLIENT,
+      ExplicitAuthFlows: ['ALLOW_USER_PASSWORD_AUTH', 'ALLOW_REFRESH_TOKEN_AUTH'],
+    }));
+    clientId = res.UserPoolClient.ClientId;
+  }
+  const { Groups = [] } = await cognito.send(new ListGroupsCommand({ UserPoolId: poolId, Limit: 60 }));
+  if (!Groups.some((g) => g.GroupName === PLATFORM_GROUP)) {
+    try {
+      await cognito.send(new CreateGroupCommand({ UserPoolId: poolId, GroupName: PLATFORM_GROUP }));
+    } catch (e) {
+      if (e.name !== 'GroupExistsException') throw e;
+    }
+  }
+  const changed = setEnv({
+    PLATFORM_COGNITO_USER_POOL_ID: poolId,
+    PLATFORM_COGNITO_CLIENT_ID: clientId,
+    VITE_PLATFORM_COGNITO_CLIENT_ID: clientId,
+  });
+  return `${poolId}, client ${clientId}, group ${PLATFORM_GROUP}${changed.length ? ` (wrote ${changed.join(', ')} to .env)` : ''}`;
+}
+
 async function ensureBucket(Bucket) {
   if (!Bucket) throw new Error('bucket name is not set in .env');
   try {
@@ -110,6 +148,7 @@ async function ensureStateMachine() {
 let failed = 0;
 const steps = [
   ['Cognito user pool', ensureUserPool],
+  ['Angaza user pool', ensurePlatformPool],
   ['Report bucket', () => ensureBucket(process.env.REPORT_BUCKET)],
   ['Model bucket', () => ensureBucket(process.env.MODEL_BUCKET)],
   ['State machine', ensureStateMachine],

@@ -1,4 +1,4 @@
-import { nextPeriodSchoolDays, pointFor } from '../../library/features.js';
+import { nextPeriodSchoolDays, pointFor, RISK_OUTCOME } from '../../library/features.js';
 import { ulid } from '../../library/ids.js';
 import { invoke, scorerFunction } from '../../library/invoke.js';
 import * as features from '../../library/featureStore.js';
@@ -64,7 +64,8 @@ async function targetsFor({ schoolId, run, point, model, students, flagged, term
         action: 'counterfactuals',
         prediction_point: point,
         model_version: model.model_version,
-        pass_mark: rule?.pass_mark ?? null,
+        // T3M targets are judged by the model's own outcome (below 50% at T3F), not the school's pass mark.
+        pass_mark: RISK_OUTCOME.pass_mark,
         missing_score_policy: rule?.missing_score_policy ?? null,
         rows: batch.map((p) => {
           const row = students[p.row_id].row;

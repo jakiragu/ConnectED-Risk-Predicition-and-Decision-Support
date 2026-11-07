@@ -3,6 +3,7 @@ import { gql } from '../api/graphql.js';
 import { GET_GRADE_RULE, SET_CHECKPOINT_WEIGHTS } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
+import { Link } from 'react-router-dom';
 import { Info } from './ui.jsx';
 
 const FIELDS = [
@@ -12,12 +13,14 @@ const FIELDS = [
 ];
 
 /**
- * The term's exam setup: whether it holds an Opener (administrators) and how
- * much each checkpoint counts towards the term result (any gradebook role).
+ * The term's exam setup: whether it holds an Opener and how much each
+ * checkpoint counts towards the term result. Both apply to every class in the
+ * term, so only an administrator changes them (Settings -> Exams and weights);
+ * everyone else sees them read-only, for example on the Assessments page.
  * An Opener that is held may weigh 0%: it is then published and on report
  * cards, but does not count towards the term result.
  */
-export default function CheckpointWeights({ schoolId, termId, online, onChanged }) {
+export default function CheckpointWeights({ schoolId, termId, online, onChanged, onDirtyChange, readOnly = false, title = 'Exams and weights this term' }) {
   const { isAdmin } = useAuth();
   const setup = useCheckpointSetup(schoolId, termId);
   const [rule, setRule] = useState(null);
@@ -39,10 +42,14 @@ export default function CheckpointWeights({ schoolId, termId, online, onChanged 
     load().catch((e) => setError(e.message));
   }, [load]);
 
+  const editable = isAdmin && !readOnly;
+  const dirtyNow = Boolean(draft) || (openerDraft !== null && rule && openerDraft !== rule.opener_enabled);
+  useEffect(() => { onDirtyChange?.(Boolean(dirtyNow)); }, [dirtyNow, onDirtyChange]);
+
   if (!online) return null;
   if (!rule) return error ? <div className="card error-card">{error}</div> : null;
 
-  const locked = rule.checkpoint_weights_locked;
+  const locked = rule.checkpoint_weights_locked || !editable;
   const openerEnabled = openerDraft ?? rule.opener_enabled;
   const fields = FIELDS.filter((f) => openerEnabled || f.checkpoint !== 'OPENER');
   const current = rule.checkpoint_weights || {};
@@ -99,12 +106,49 @@ export default function CheckpointWeights({ schoolId, termId, online, onChanged 
   }
 
   const openerName = setup.label('OPENER');
-  const canToggle = isAdmin && !locked && !rule.opener_locked_reason;
+
+  // Everyone but an administrator in Settings sees the term's setup as a plain summary, not as disabled inputs.
+  if (!editable) {
+    const w = rule.checkpoint_weights;
+    const set = rule.checkpoint_weights_problems.length === 0 && w;
+    const parts = [
+      ...(rule.opener_enabled ? [{ key: 'OPENER', weight: w?.opener }] : []),
+      { key: 'MIDTERM', weight: w?.midterm },
+      { key: 'ENDTERM', weight: w?.endterm },
+    ];
+    return (
+      <div className="card weights-summary">
+        <div className="weights-summary-head">
+          <h2>How exams count this term</h2>
+          {isAdmin && !rule.checkpoint_weights_locked && <Link to="/settings/exams">Change in Settings</Link>}
+        </div>
+        {set ? (
+          <ul className="weight-chips" aria-label="Exam weights">
+            {parts.map((p) => (
+              <li key={p.key}>
+                <span>{setup.label(p.key)}</span>
+                <b>{p.weight ?? 0}%</b>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="hint warn">The weights for this term have not been set yet, so End-term results cannot be calculated.
+            {isAdmin ? ' Set them in Settings, Exams and weights.' : ' An administrator sets them.'}</p>
+        )}
+        <p className="hint">
+          {rule.opener_enabled ? `This term holds an ${openerName}. ` : `This term has no ${openerName}. `}
+          {set && 'Each subject’s term result combines its exam results in these proportions.'}
+          {rule.checkpoint_weights_locked && ' End-term results are published, so these are final.'}
+        </p>
+      </div>
+    );
+  }
+  const canToggle = editable && !rule.checkpoint_weights_locked && !rule.opener_locked_reason;
 
   return (
     <div className="card weights-card">
       <div className="weights-head">
-        <h2>Exams and weights this term</h2>
+        <h2>{title}</h2>
 
         <Info label="About checkpoint weights">
           The weights decide how much each exam contributes to the term result, and must add up to 100%.
@@ -152,9 +196,9 @@ export default function CheckpointWeights({ schoolId, termId, online, onChanged 
       {openerEnabled && Number(values.opener) === 0 && (
         <div className="hint">The {openerName} is held but weighs 0%: it is reported, not counted.</div>
       )}
-      {locked && <div className="hint">End of term results are published, so these are fixed.</div>}
-      {!locked && rule.opener_locked_reason && <div className="hint">{rule.opener_locked_reason}</div>}
-      {!locked && !isAdmin && <div className="hint">Only an administrator can add or remove the {openerName}.</div>}
+      {rule.checkpoint_weights_locked && <div className="hint">End of term results are published, so these are fixed.</div>}
+      {editable && !rule.checkpoint_weights_locked && rule.opener_locked_reason && <div className="hint">{rule.opener_locked_reason}</div>}
+
       {!dirty && rule.checkpoint_weights_problems.map((p) => <div key={p} className="hint warn">{p}</div>)}
       {error && <div className="error">{error}</div>}
     </div>

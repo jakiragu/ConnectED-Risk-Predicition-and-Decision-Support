@@ -11,6 +11,8 @@ const client = new CognitoIdentityProviderClient({
   credentials: { accessKeyId: 'unused', secretAccessKey: 'unused' }, // public operations; never signed by the pool
 });
 const CLIENT_ID = import.meta.env.VITE_COGNITO_CLIENT_ID;
+/** The Angaza console's app client, in the Angaza staff pool. Every function below takes it as clientId. */
+export const ANGAZA_CLIENT_ID = import.meta.env.VITE_PLATFORM_COGNITO_CLIENT_ID;
 
 const MESSAGES = {
   NotAuthorizedException: 'Incorrect email or password',
@@ -26,10 +28,10 @@ const tokensFrom = (result, previousRefresh = null) => ({
 });
 
 /** @returns {{tokens}|{challenge: 'NEW_PASSWORD_REQUIRED', session: string}} */
-export async function signInWithPassword(email, password) {
+export async function signInWithPassword(email, password, clientId = CLIENT_ID) {
   try {
     const res = await client.send(new InitiateAuthCommand({
-      ClientId: CLIENT_ID,
+      ClientId: clientId,
       AuthFlow: 'USER_PASSWORD_AUTH',
       AuthParameters: { USERNAME: email, PASSWORD: password },
     }));
@@ -41,11 +43,11 @@ export async function signInWithPassword(email, password) {
   }
 }
 
-/** First sign-in with a temporary password: the teacher chooses their own. */
-export async function completeNewPassword(email, session, newPassword) {
+/** First sign-in with a temporary password: the teacher chooses their own. clientId: see ANGAZA_CLIENT_ID. */
+export async function completeNewPassword(email, session, newPassword, clientId = CLIENT_ID) {
   try {
     const res = await client.send(new RespondToAuthChallengeCommand({
-      ClientId: CLIENT_ID,
+      ClientId: clientId,
       ChallengeName: 'NEW_PASSWORD_REQUIRED',
       Session: session,
       ChallengeResponses: { USERNAME: email, NEW_PASSWORD: newPassword },
@@ -56,9 +58,9 @@ export async function completeNewPassword(email, session, newPassword) {
   }
 }
 
-export async function refresh(refreshToken) {
+export async function refresh(refreshToken, clientId = CLIENT_ID) {
   const res = await client.send(new InitiateAuthCommand({
-    ClientId: CLIENT_ID,
+    ClientId: clientId,
     AuthFlow: 'REFRESH_TOKEN_AUTH',
     AuthParameters: { REFRESH_TOKEN: refreshToken },
   }));

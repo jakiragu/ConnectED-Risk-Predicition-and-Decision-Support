@@ -12,6 +12,7 @@ import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
 import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
+import { byClassOrder, classLabel } from '../classLabels.js';
 
 /** Starts a browser download from a short-lived link; the server sets the file name. */
 function save(url, fileName) {
@@ -34,7 +35,7 @@ export default function ReportCards() {
   const classes = useLive(() => db().classes.toArray(), [], []);
 
   const mine = useMemo(
-    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort((a, b) => a.name.localeCompare(b.name)),
+    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort(byClassOrder),
     [classes, isAdmin]
   );
   const termId = params.get('term') || defaultTermId;
@@ -161,7 +162,7 @@ export default function ReportCards() {
         <Select aria-label="Checkpoint" value={checkpoint} onChange={(v) => go({ cp: v })}
           options={setup.checkpoints.map((c) => ({ value: c, label: setup.label(c) }))} />
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
-          options={mine.map((c) => ({ value: c.class_id, label: c.name }))} disabled={!isAdmin && mine.length === 1} />
+          options={mine.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} disabled={!isAdmin && mine.length === 1} />
       </div>
 
       {error && <div className="card error-card">{error}</div>}

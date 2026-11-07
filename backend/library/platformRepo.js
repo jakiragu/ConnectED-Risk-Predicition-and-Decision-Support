@@ -24,6 +24,8 @@ async function queryPrefix(schoolId, prefix, extra = {}) {
 
 export const teacher = (schoolId, teacherId) => getItem(schoolId, sk.teacher(teacherId), true);
 export const school = (schoolId) => getItem(schoolId, sk.school());
+/** Read on every request to see whether Angaza has suspended the school; consistent so a change applies at once. */
+export const schoolForAccess = (schoolId) => getItem(schoolId, sk.school(), true);
 export const term = (schoolId, termId) => getItem(schoolId, sk.term(termId));
 export const klass = (schoolId, classId) => getItem(schoolId, sk.klass(classId), true);
 export const student = (schoolId, studentId) => getItem(schoolId, sk.student(studentId), true);

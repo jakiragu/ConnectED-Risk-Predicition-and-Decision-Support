@@ -286,5 +286,5 @@ export async function transferStudent(schoolId, existing, toClassId, expectedVer
   }));
 }
 
-export const setStudentStatus = (schoolId, studentId, status, expectedVersion, actor) =>
-  versioned(schoolId, sk.student(studentId), { status, updated_by: actor.sub }, expectedVersion);
+export const setStudentStatus = (schoolId, studentId, status, expectedVersion, actor, metadata = {}) =>
+  versioned(schoolId, sk.student(studentId), { status, ...metadata, updated_by: actor.sub }, expectedVersion);

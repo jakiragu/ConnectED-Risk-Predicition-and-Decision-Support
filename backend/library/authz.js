@@ -1,4 +1,5 @@
 import { forbidden, unauthorized } from './errors.js';
+import { isPlatformIdentity } from './platformAuth.js';
 
 export const ROLE = {
   ADMIN: 'Admin',
@@ -10,6 +11,8 @@ export const ROLES = Object.values(ROLE);
 export function identityOf(event) {
   const id = event?.identity;
   if (!id?.sub) throw unauthorized('No authenticated identity on request');
+  // An Angaza account never acts inside a school, even if a token were somehow given a school claim.
+  if (isPlatformIdentity(event)) throw unauthorized('Angaza accounts cannot open a school’s gradebook. Use the Angaza console.');
   const claims = id.claims || {};
   const schoolId = claims['custom:school_id'];
   if (!schoolId) throw unauthorized('Token carries no school scope');
@@ -41,7 +44,7 @@ export const isClassTeacherOf = (actor, classId) => access(actor).classTeacherOf
 
 /** Classes a teacher works in: any subject assignment, or class teacher. */
 export const readableClassIds = (actor) =>
-  new Set([...access(actor).assignments.map((a) => a.class_id), access(actor).classTeacherOf].filter(Boolean));
+  new Set([...access(actor).assignments.map((a) => a.class_id), access(actor).classTeacherOf, ...(access(actor).historicalClassTeacherOf || [])].filter(Boolean));
 
 export const canReadClass = (actor, classId) => isAdmin(actor) || readableClassIds(actor).has(classId);
 
@@ -51,7 +54,7 @@ export function assertClassRead(actor, classId) {
 
 /** null = every subject (Admin, or the class teacher); otherwise the teacher's subjects in that class. */
 export function visibleSubjects(actor, classId) {
-  if (isAdmin(actor) || isClassTeacherOf(actor, classId)) return null;
+  if (isAdmin(actor) || isClassTeacherOf(actor, classId) || (access(actor).historicalClassTeacherOf || []).includes(classId)) return null;
   return new Set(access(actor).assignments.filter((a) => a.class_id === classId).map((a) => a.subject));
 }
 

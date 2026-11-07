@@ -15,6 +15,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
+import { byClassOrder, classLabel } from '../classLabels.js';
 
 const POINTS = [
   { value: 'T1M', label: 'Term 1 Mid-term', term_number: 1, checkpoint: 'MIDTERM' },
@@ -84,7 +85,7 @@ export default function RiskPrediction() {
   const [params, setParams] = useSearchParams();
   const classes = useLive(() => db().classes.toArray(), [], []);
   const mine = useMemo(
-    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort((a, b) => a.name.localeCompare(b.name)),
+    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort(byClassOrder),
     [classes, isAdmin]
   );
   const canAll = isAdmin && mine.length > 1;
@@ -220,7 +221,7 @@ export default function RiskPrediction() {
 
       <div className="toolbar">
         <Select aria-label="Class" value={all ? '' : classParam} onChange={(v) => go({ class: v || ALL })}
-          allLabel={canAll ? 'All classes' : undefined} options={mine.map((c) => ({ value: c.class_id, label: c.name }))} />
+          allLabel={canAll ? 'All classes' : undefined} options={mine.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} />
         <Select aria-label="Checkpoint" value={point.value} onChange={(v) => go({ point: v })}
           options={POINTS.map((p) => ({ value: p.value, label: p.label }))} />
         <span className="grow" />

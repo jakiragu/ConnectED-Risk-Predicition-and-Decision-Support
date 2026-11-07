@@ -24,6 +24,7 @@ import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
 import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
+import { classLabel, sortClasses } from '../classLabels.js';
 
 const POLL_MS = 3000;
 const IN_FLIGHT = new Set(['PENDING', 'RUNNING']);
@@ -341,7 +342,7 @@ export default function Results() {
   };
 
   const classes = useLive(() => db().classes.toArray(), [], []);
-  const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.name.localeCompare(b.name)), [classes]);
+  const sortedClasses = useMemo(() => sortClasses(classes), [classes]);
   const [sets, setSets] = useState([]);
   const [rows, setRows] = useState([]);
   const [roster, setRoster] = useState([]);
@@ -481,7 +482,7 @@ export default function Results() {
       <div ref={resultsSectionRef} className="page-head" id="class-results">
         <h2>{className ? `${className}: ${cpLabel}` : 'Class results'}</h2>
         <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v, subject: '' })}
-          options={sortedClasses.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Choose a class" />
+          options={sortedClasses.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} placeholder="Choose a class" />
         {classId && (
           <Select aria-label="Subject" value={subject} onChange={(v) => go({ subject: v })}
             options={[{ value: '', label: 'All subjects' }, ...subjects.map((s) => ({ value: s, label: s }))]}

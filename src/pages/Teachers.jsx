@@ -16,6 +16,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
 import { useSync } from '../offline/useSync.js';
 import { DangerButton, ActionIcon } from '../components/ui.jsx';
+import { classLabel, classLabels } from '../classLabels.js';
 
 const ROLES = ['Teacher', 'Admin'];
 const EMPTY = { first_name: '', last_name: '', email: '', role: 'Teacher' };
@@ -132,7 +133,7 @@ function Manage({ teacher, classes, isSelf, run }) {
           </div>
           <div className="weights-row">
             <Select aria-label="Class" value={add.class_id} onChange={(v) => setAdd({ ...add, class_id: v })}
-              options={open.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Class" />
+              options={open.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} placeholder="Class" />
             <Select aria-label="Subject" value={add.subject} onChange={(v) => setAdd({ ...add, subject: v })}
               options={SUBJECTS} placeholder="Subject" />
             <button type="button" className="btn secondary" disabled={!add.class_id || !add.subject} onClick={addAssignment}>Add</button>
@@ -145,7 +146,7 @@ function Manage({ teacher, classes, isSelf, run }) {
           <h3>Class teacher</h3>
           <div className="weights-row">
             <Select aria-label="Class teacher of" value={classTeacherOf} onChange={setClassTeacherOf}
-              options={[{ value: '', label: 'Not a class teacher' }, ...classTeacherOptions.map((c) => ({ value: c.class_id, label: c.name }))]} />
+              options={[{ value: '', label: 'Not a class teacher' }, ...classTeacherOptions.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))]} />
             <button type="button" className="btn" disabled={classTeacherOf === (teacher.class_teacher_of || '') || !active}
               onClick={saveClassTeacher}>
               Save class teacher
@@ -229,7 +230,7 @@ export default function Teachers() {
     setForm(EMPTY);
   }
 
-  const classNames = new Map(classes.map((c) => [c.class_id, c.name]));
+  const classNames = classLabels(classes);
   const current = teachers.find((t) => t.teacher_id === selected) || null;
 
   if (!online) return <div className="notice">Managing teachers needs a connection.</div>;

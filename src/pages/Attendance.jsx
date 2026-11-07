@@ -12,6 +12,7 @@ import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { useTerms } from '../offline/useTerms.js';
+import { byClassOrder, classLabel } from '../classLabels.js';
 
 const PERIODS = [
   { value: 'MIDTERM', label: 'Start of term to Mid-term' },
@@ -36,7 +37,7 @@ export default function Attendance() {
 
   // Attendance is the class teacher's: they see only their own class; administrators choose any class.
   const mine = useMemo(
-    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort((a, b) => a.name.localeCompare(b.name)),
+    () => classes.filter((c) => isAdmin || c.is_class_teacher).sort(byClassOrder),
     [classes, isAdmin]
   );
   const requested = params.get('class');
@@ -178,7 +179,7 @@ export default function Attendance() {
       <div className="toolbar">
         {isAdmin && (
           <Select aria-label="Class" value={classId} onChange={(v) => go({ class: v })}
-            options={mine.map((c) => ({ value: c.class_id, label: c.name }))} />
+            options={mine.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} />
         )}
         <Select aria-label="Term" value={termId} onChange={(v) => go({ term: v })}
           options={terms.map((t) => ({ value: t.term_id, label: t.name }))} />

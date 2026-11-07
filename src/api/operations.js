@@ -144,6 +144,8 @@ const GRADE_RULE_FIELDS = `
   term_id pass_mark missing_score_policy opener_enabled opener_locked_reason
   checkpoint_weights { opener midterm endterm }
   checkpoint_weights_version checkpoint_weights_problems checkpoint_weights_locked
+  bands { grade min_score max_score }
+  grading_version grading_locked_reason grading_updated_at grading_updated_by_name
 `;
 
 const RESULT_SET_FIELDS = `
@@ -218,8 +220,8 @@ const TEACHER_FIELDS = `
   teacher_id school_id school_name email first_name last_name role status class_teacher_of
   assignments { class_id subject } created_at updated_at _version
 `;
-const CLASS_FIELDS = `class_id name grade stream year status class_teacher_id class_teacher_name student_count _version`;
-const STUDENT_FIELDS = `student_id first_name last_name admission_no class_id status _version`;
+const CLASS_FIELDS = `class_id name grade stream year status class_teacher_id class_teacher_name student_count promoted_from_class_id promoted_to_class_id _version`;
+const STUDENT_FIELDS = `student_id first_name last_name admission_no class_id status graduation_year left_year departure_kind deactivation_reason deactivation_date _version`;
 
 export const ME = `
   query Me($school_id: ID!) { me(school_id: $school_id) { ${TEACHER_FIELDS} } }`;
@@ -300,4 +302,50 @@ export const LIST_REPORT_CARDS = `
 export const REQUEST_REPORT_CARD_DOWNLOAD = `
   mutation RequestReportCardDownload($input: ReportCardDownloadInput!) {
     requestReportCardDownload(input: $input) { url file_name expires_at }
+  }`;
+
+// ------------------------------------------------------------ year-end promotion (administrators)
+
+const PROMOTION_SUMMARY = `promote repeat graduate leave classes_created classes_archived`;
+const PROMOTION_REF = `key class_id name grade stream year level exists`;
+const PROMOTION_RUN = `
+  run_id from_year to_year status copy_teachers teacher_strategy
+  decisions { student_id name automatic_action action average pass_mark overridden override_reason overridden_by from_class_id to_class_id }
+  summary { ${PROMOTION_SUMMARY} }
+  skipped { student_id name reason } skipped_teachers interventions_stopped
+  created_by_name created_at applied_at reverted_at can_revert revert_blocked_reason`;
+
+export const PLAN_PROMOTION = `
+  query PlanPromotion($school_id: ID!, $from_year: Int!, $overrides: [PromotionOverrideInput!], $teacher_strategy: String, $excluded_teachers: [ID!]) {
+    planPromotion(school_id: $school_id, from_year: $from_year, overrides: $overrides, teacher_strategy: $teacher_strategy, excluded_teachers: $excluded_teachers) {
+      from_year to_year levels final_levels review_token teacher_strategy
+      teacher_preview { teacher_id name excluded description conflicts }
+      teacher_warnings
+      blockers { code class_id message }
+      summary { ${PROMOTION_SUMMARY} }
+      choices { ${PROMOTION_REF} }
+      classes {
+        source_class_id source_name grade stream level publication_status graduating class_teacher_name active_count inactive_count
+        destination { ${PROMOTION_REF} }
+        repeat_destination { ${PROMOTION_REF} }
+        students { student_id admission_no first_name last_name average pass_mark result_problem override_reason default_action action to_key to_class_id to_class_name overridden }
+      }
+      run { ${PROMOTION_RUN} }
+    }
+  }`;
+
+export const APPLY_PROMOTION = `
+  mutation ApplyPromotion($input: ApplyPromotionInput!) { applyPromotion(input: $input) { ${PROMOTION_RUN} } }`;
+
+export const REVERT_PROMOTION = `
+  mutation RevertPromotion($input: RevertPromotionInput!) { revertPromotion(input: $input) { ${PROMOTION_RUN} } }`;
+
+export const LIST_PROMOTION_RUNS = `
+  query ListPromotionRuns($school_id: ID!) { listPromotionRuns(school_id: $school_id) { ${PROMOTION_RUN} } }`;
+
+export const LIST_PAST_STUDENTS = `
+  query ListPastStudents($school_id: ID!, $year: Int) {
+    listPastStudents(school_id: $school_id, year: $year) {
+      student_id admission_no first_name last_name status graduation_year left_year departure_kind deactivation_reason deactivation_date class_id class_name
+    }
   }`;

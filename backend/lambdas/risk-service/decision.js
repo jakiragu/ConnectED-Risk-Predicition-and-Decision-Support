@@ -11,6 +11,9 @@ import * as interventions from '../../library/interventionRepo.js';
 import * as platform from '../../library/platformRepo.js';
 import * as risk from '../../library/riskRepo.js';
 import { latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
+import * as history from '../../library/historyRepo.js';
+import * as promotions from '../../library/promotionRepo.js';
+import { currentYear, latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
 
 /**
  * Decision support reads (FR-11, US-01..US-06): a student's risk profile, a
@@ -38,6 +41,8 @@ const studentView = (s, klass) => ({
   last_name: s.last_name ?? '',
   class_id: s.class_id ?? null,
   class_name: klass?.name ?? null,
+  status: s.status || 'ACTIVE',
+  graduation_year: s.graduation_year ?? null,
 });
 
 const subjectsIn = (row, scope) => (row?.subjects || [])
@@ -59,15 +64,27 @@ export async function getStudentRiskProfile(actor, { school_id, student_id, acad
   if (!ctx.scope) throw forbidden('You do not teach this student');
   const { scope } = ctx;
   const klass = ctx.student.class_id ? await platform.klass(school_id, ctx.student.class_id) : null;
-  const year = await studentYear(school_id, student_id, ctx.academicYear, ctx.terms);
+  const [year, past] = await Promise.all([
+    studentYear(school_id, student_id, ctx.academicYear, ctx.terms),
+    history.listStudentHistory(school_id, student_id),
+  ]);
   const { latest, current, last_published_point } = latestOf(year);
   const previous = year.predictions.length > 1 ? year.predictions[year.predictions.length - 2] : null;
   const e = latest ? explain(latest) : null;
   const lastResult = year.results[year.results.length - 1] ?? null;
 
+  // The years this student has published results in, so earlier years (before a promotion) can be opened.
+  const years = [...new Set([...past.map((r) => Number(r.academic_year)), Number(ctx.academicYear)].filter(Number.isFinite))].sort((a, b) => b - a);
+  const rowsThisYear = past.filter((r) => Number(r.academic_year) === Number(ctx.academicYear))
+    .sort((a, b) => String(a.published_at).localeCompare(String(b.published_at)));
+  const yearClassId = rowsThisYear[rowsThisYear.length - 1]?.class_id ?? null;
+  const yearClass = yearClassId && yearClassId !== klass?.class_id ? await platform.klass(school_id, yearClassId) : klass;
+
   return {
     student: studentView(ctx.student, klass),
     academic_year: ctx.academicYear,
+    available_years: years,
+    year_class_name: yearClass ? `${yearClass.name}${yearClass.year ? ` ${yearClass.year}` : ''}` : null,
     scope: ctx.scopeView,
     current,
     last_published_point,
@@ -117,10 +134,17 @@ export async function getRiskDashboard(actor, { school_id }) {
     ])
   );
   const ids = isAdmin(actor) ? null : readableClassIds(actor);
-  const classes = allClasses.filter((c) => (ids ? ids.has(c.class_id) : c.status !== 'PAST'));
   const today = todayIn(zone());
   const year = currentYear(terms, today);
   const currentTerm = selectCurrentTerm(terms, today);
+//   let year = currentYear(terms, today);
+//   // Once a year is promoted its classes are archived, so the dashboard moves to the next year's classes
+//   // (whose predictions start when their first results are published).
+//   if (year != null && (await promotions.getLock(school_id, year))?.status === promotions.RUN_STATUS.APPLIED) year += 1;
+//   // Only classes of the dashboard's year: last year's predictions never appear under this year's class names.
+//   const inYear = (c) => (year == null || c.year == null ? c.status !== 'PAST' : Number(c.year) === Number(year));
+//   const classes = allClasses.filter((c) => (ids ? ids.has(c.class_id) : c.status !== 'PAST') && inYear(c));
+//   const currentTerm = terms.find((t) => Number(t.academic_year) === Number(year) && termStatus(t, today) === 'CURRENT') ?? null;
   const latest = await latestByStudent(school_id, year);
 
   const atRisk = [];

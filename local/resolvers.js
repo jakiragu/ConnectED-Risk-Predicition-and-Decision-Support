@@ -7,6 +7,7 @@ import { handler as attendanceService } from '../backend/lambdas/attendance-serv
 import { handler as featureService } from '../backend/lambdas/feature-service/handler.js';
 import { handler as riskService } from '../backend/lambdas/risk-service/handler.js';
 import { handler as interventionService } from '../backend/lambdas/intervention-service/handler.js';
+import { handler as platformService } from '../backend/lambdas/platform-service/handler.js';
 
 export const RESOLVERS = {
   Query: {
@@ -20,6 +21,9 @@ export const RESOLVERS = {
     listScoresByAssessment: gradingService,
     syncScores: gradingService,
     getGradeRule: resultsService,
+    getGradingPolicy: resultsService,
+    getGradingPreview: resultsService,
+    getClassProfile: resultsService,
     listResultSets: resultsService,
     listCheckpointStatus: resultsService,
     getTermResults: resultsService,
@@ -27,6 +31,7 @@ export const RESOLVERS = {
     me: schoolService,
     listTeachers: schoolService,
     listSchoolClasses: schoolService,
+    getClassSetup: schoolService,
     listStudents: schoolService,
     getClassAttendance: attendanceService,
     getFeatureContract: featureService,
@@ -42,6 +47,12 @@ export const RESOLVERS = {
     getSchoolRiskOverview: riskService,
     listStudentInterventions: interventionService,
     listInterventionMethods: interventionService,
+    planPromotion: schoolService,
+    getPromotionRun: schoolService,
+    listPromotionRuns: schoolService,
+    listPastStudents: schoolService,
+    listSchools: platformService,
+    getSchool: platformService,
   },
   Mutation: {
     createAssessment: assessmentService,
@@ -55,6 +66,8 @@ export const RESOLVERS = {
     submitScores: gradingService,
     resolveScoreConflict: gradingService,
     setCheckpointWeights: resultsService,
+    saveGradingPolicy: resultsService,
+    setTermGrading: resultsService,
     calculateTermResults: resultsService,
     calculateSchoolResults: resultsService,
     publishResults: resultsService,
@@ -69,12 +82,21 @@ export const RESOLVERS = {
     reactivateTeacher: schoolService,
     resetTeacherPassword: schoolService,
     createClass: schoolService,
+    saveClassSetup: schoolService,
     updateClass: schoolService,
     deleteClass: schoolService,
     createStudent: schoolService,
     updateStudent: schoolService,
     transferStudent: schoolService,
     setStudentStatus: schoolService,
+    applyPromotion: schoolService,
+    revertPromotion: schoolService,
+    createSchool: platformService,
+    updateSchool: platformService,
+    suspendSchool: platformService,
+    reactivateSchool: platformService,
+    addSchoolAdmin: platformService,
+    resetSchoolAdminPassword: platformService,
     createTerm: calendarService,
     updateTerm: calendarService,
     submitAttendance: attendanceService,
