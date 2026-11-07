@@ -53,6 +53,7 @@ function AssessmentPanel({
   onChange,
   targetIndex,
   onTargetIndexChange,
+  allowTargetSelection = false,
   isCurrent,
 }) {
   const prediction = entry?.prediction;
@@ -189,6 +190,7 @@ function AssessmentPanel({
                     targets={entry.targets}
                     selectedIndex={targetIndex}
                     onSelectedIndexChange={onTargetIndexChange}
+                    allowSelection={allowTargetSelection}
                   />
                 )}
             </>
@@ -260,12 +262,9 @@ export default function StudentProfile() {
   const [view, setView] = useState({ data: null, fromDevice: false, savedAt: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedTargetIndex, setSelectedTargetIndex] = useState(0);
-  const [latestAssessmentPoint, setLatestAssessmentPoint] = useState(null);
-  const [previousAssessmentPoint, setPreviousAssessmentPoint] = useState(null);
-
-  const [latestTargetIndex, setLatestTargetIndex] = useState(0);
-  const [previousTargetIndex, setPreviousTargetIndex] = useState(0);
+  const [laterAssessmentPoint, setLaterAssessmentPoint] = useState(null);
+  const [earlierAssessmentPoint, setEarlierAssessmentPoint] = useState(null);
+  const [laterTargetIndex, setLaterTargetIndex] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -279,65 +278,112 @@ export default function StudentProfile() {
   }, [actor.schoolId, studentId, online]);
 
   const p = view.data;
-  useEffect(() => {
-    setSelectedTargetIndex(0);
-  }, [p?.targets]);
   if (error) return <div className="stack"><Link to="/dashboard">Back</Link><div className="notice">{error}</div></div>;
   if (!p) return <div className="hint">{loading ? 'Loading…' : 'This profile has not been opened on this device before, so it cannot be shown offline.'}</div>;
   const assessmentHistory = (p.assessment_history || [])
     .slice()
-    .sort((a, b) =>
-      CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) -
-      CHECKPOINT_ORDER.indexOf(b.prediction.prediction_point)
+    .sort(
+      (a, b) =>
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) -
+        CHECKPOINT_ORDER.indexOf(b.prediction.prediction_point)
     );
 
-  // Dropdowns display the newest checkpoint first.
-  const newestFirst = assessmentHistory.slice().reverse();
+  // The first panel defaults to the newest available prediction.
+  const defaultLaterAssessment = assessmentHistory.at(-1) ?? null;
 
-  const defaultLatest = newestFirst[0] ?? null;
-  const defaultPrevious = newestFirst[1] ?? null;
+  const laterAssessment =
+    assessmentHistory.find(
+      (a) => a.prediction.prediction_point === laterAssessmentPoint
+    ) ?? defaultLaterAssessment;
 
-  const latestAssessment =
-    newestFirst.find(
-      (a) => a.prediction.prediction_point === latestAssessmentPoint
-    ) ?? defaultLatest;
+  const laterPoint =
+    laterAssessment?.prediction.prediction_point ?? null;
 
-  const latestPoint =
-    latestAssessment?.prediction.prediction_point ?? null;
+  const laterIndex = laterPoint
+    ? CHECKPOINT_ORDER.indexOf(laterPoint)
+    : -1;
 
-  // Keep the previous selection valid and different from the latest selection.
-  const previousAssessment =
-    newestFirst.find(
+  // The second panel must always contain an earlier checkpoint.
+  const earlierAssessment =
+    assessmentHistory.find(
       (a) =>
-        a.prediction.prediction_point === previousAssessmentPoint &&
-        a.prediction.prediction_point !== latestPoint
+        a.prediction.prediction_point === earlierAssessmentPoint &&
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
     ) ??
-    newestFirst.find(
-      (a) =>
-        a.prediction.prediction_point === defaultPrevious?.prediction.prediction_point &&
-        a.prediction.prediction_point !== latestPoint
-    ) ??
-    newestFirst.find(
-      (a) => a.prediction.prediction_point !== latestPoint
-    ) ??
+    assessmentHistory
+      .filter(
+        (a) =>
+          CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
+      )
+      .at(-1) ??
     null;
 
-  const previousPoint =
-    previousAssessment?.prediction.prediction_point ?? null;
+  const earlierPoint =
+    earlierAssessment?.prediction.prediction_point ?? null;
 
-  const latestOptions = newestFirst
-    .filter((a) => a.prediction.prediction_point !== previousPoint)
+  const earlierIndex = earlierPoint
+    ? CHECKPOINT_ORDER.indexOf(earlierPoint)
+    : -1;
+
+  // Later panel: only checkpoints after the earlier panel's selection.
+  const laterOptions = assessmentHistory
+    .filter(
+      (a) =>
+        earlierIndex === -1 ||
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) > earlierIndex
+    )
+    .slice()
+    .reverse()
     .map((a) => ({
       value: a.prediction.prediction_point,
       label: a.prediction.label,
     }));
 
-  const previousOptions = newestFirst
-    .filter((a) => a.prediction.prediction_point !== latestPoint)
+  // Earlier panel: only checkpoints before the later panel's selection.
+  const earlierOptions = assessmentHistory
+    .filter(
+      (a) =>
+        laterIndex !== -1 &&
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
+    )
+    .slice()
+    .reverse()
     .map((a) => ({
       value: a.prediction.prediction_point,
       label: a.prediction.label,
     }));
+
+    // Targets are selectable only for the most recent, current prediction.
+    const canSwitchLaterTargets =
+      Boolean(laterPoint) &&
+      laterPoint === p.latest?.prediction_point &&
+      p.current === true;
+
+    const handleLaterAssessmentChange = (point) => {
+    const newIndex = CHECKPOINT_ORDER.indexOf(point);
+
+    // If the current earlier selection is no longer valid,
+    // move it to the nearest available earlier checkpoint.
+    if (earlierIndex >= newIndex) {
+      const replacement = assessmentHistory
+        .filter(
+          (a) =>
+            CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < newIndex
+        )
+        .at(-1);
+
+      setEarlierAssessmentPoint(
+        replacement?.prediction.prediction_point ?? null
+      );
+    }
+
+    setLaterAssessmentPoint(point);
+    setLaterTargetIndex(0);
+  };
+
+  const handleEarlierAssessmentChange = (point) => {
+    setEarlierAssessmentPoint(point);
+  };
 
   const points = CHECKPOINT_ORDER.filter((c) => p.risk_trend.some((r) => r.prediction_point === c) || p.performance_trend.some((r) => r.point === c));
   const riskAt = new Map(p.risk_trend.map((r) => [r.prediction_point, r.probability * 100]));
@@ -391,34 +437,25 @@ export default function StudentProfile() {
 
       <div className="profile-grid assessment-comparison">
         <AssessmentPanel
-          heading="Earlier assessment"
-          entry={latestAssessment}
-          options={latestOptions}
-          value={latestPoint ?? ''}
-          onChange={(point) => {
-            setLatestAssessmentPoint(point);
-            setLatestTargetIndex(0);
-          }}
-          targetIndex={latestTargetIndex}
-          onTargetIndexChange={setLatestTargetIndex}
-          isCurrent={
-            latestPoint === p.latest?.prediction_point
-              ? p.current
-              : null
-          }
+          heading="Later Assessment"
+          entry={laterAssessment}
+          options={laterOptions}
+          value={laterPoint ?? ''}
+          onChange={handleLaterAssessmentChange}
+          targetIndex={laterTargetIndex}
+          onTargetIndexChange={setLaterTargetIndex}
+          allowTargetSelection={canSwitchLaterTargets}
+          isCurrent={canSwitchLaterTargets}
         />
 
         <AssessmentPanel
-          heading="Later assessment"
-          entry={previousAssessment}
-          options={previousOptions}
-          value={previousPoint ?? ''}
-          onChange={(point) => {
-            setPreviousAssessmentPoint(point);
-            setPreviousTargetIndex(0);
-          }}
-          targetIndex={previousTargetIndex}
-          onTargetIndexChange={setPreviousTargetIndex}
+          heading="Earlier Assessment"
+          entry={earlierAssessment}
+          options={earlierOptions}
+          value={earlierPoint ?? ''}
+          onChange={handleEarlierAssessmentChange}
+          targetIndex={0}
+          allowTargetSelection={false}
         />
       </div>
 
@@ -447,7 +484,11 @@ export default function StudentProfile() {
           <SubjectPerformanceChart
             performanceTrend={p.performance_trend}
             subjects={subjects}
-            targetOption={p.targets?.options?.[selectedTargetIndex] ?? null}
+            targetOption={
+              canSwitchLaterTargets
+                ? laterAssessment?.targets?.options?.[laterTargetIndex] ?? null
+                : null
+            }
           />
         </div>
       )}
