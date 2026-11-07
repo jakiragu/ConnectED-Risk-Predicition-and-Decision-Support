@@ -356,8 +356,13 @@ export default function Results() {
   }, [actor.schoolId]);
 
   useEffect(() => {
-    if (!classId && !reviewer && sortedClasses.length) go({ class: sortedClasses[0].class_id });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (classId || !sortedClasses.length) return;
+
+    const defaultClass =
+      sortedClasses.find((c) => c.name?.trim().toLowerCase().includes('test')) ||
+      (!reviewer ? sortedClasses[0] : null);
+
+    if (defaultClass) go({ class: defaultClass.class_id });
   }, [classId, reviewer, sortedClasses]);
 
   const set = sets.find((s) => s.checkpoint === checkpoint) || null;

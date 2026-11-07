@@ -1,6 +1,6 @@
-import { assertAdmin, isAdmin, readableClassIds, subjectsITeach } from '../../library/authz.js';
+import { assertAdmin, isAdmin, isClassTeacherOf, readableClassIds, subjectsITeach } from '../../library/authz.js';
 import { recordingStatus, SUBJECTS } from '../../library/assessment.js';
-import { termStatus, todayIn } from '../../library/calendar.js';
+import { currentTerm as selectCurrentTerm, currentYear, todayIn } from '../../library/calendar.js';
 import { canSeeFactor, CHECKPOINT_ORDER, INTERVENTION_STATUS, pointIndex, scopeFactors, scopeTargets, scopeView } from '../../library/decisionSupport.js';
 import { explain } from '../../library/explanations.js';
 import { POINT_NAMES } from '../../library/features.js';
@@ -10,6 +10,7 @@ import * as assessments from '../../library/assessmentRepo.js';
 import * as interventions from '../../library/interventionRepo.js';
 import * as platform from '../../library/platformRepo.js';
 import * as risk from '../../library/riskRepo.js';
+import { latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
 import * as history from '../../library/historyRepo.js';
 import * as promotions from '../../library/promotionRepo.js';
 import { currentYear, latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
@@ -125,17 +126,25 @@ async function latestByStudent(schoolId, year) {
 }
 
 export async function getRiskDashboard(actor, { school_id }) {
-  const [allClasses, terms] = await Promise.all([platform.listClasses(school_id), platform.listTerms(school_id)]);
+  const [allClasses, terms, teachers] = await Promise.all([platform.listClasses(school_id), platform.listTerms(school_id), platform.listTeachers(school_id)]);
+  const teacherNameById = new Map(
+    teachers.map((teacher) => [
+      teacher.teacher_id,
+      `${teacher.first_name} ${teacher.last_name}`,
+    ])
+  );
   const ids = isAdmin(actor) ? null : readableClassIds(actor);
   const today = todayIn(zone());
-  let year = currentYear(terms, today);
-  // Once a year is promoted its classes are archived, so the dashboard moves to the next year's classes
-  // (whose predictions start when their first results are published).
-  if (year != null && (await promotions.getLock(school_id, year))?.status === promotions.RUN_STATUS.APPLIED) year += 1;
-  // Only classes of the dashboard's year: last year's predictions never appear under this year's class names.
-  const inYear = (c) => (year == null || c.year == null ? c.status !== 'PAST' : Number(c.year) === Number(year));
-  const classes = allClasses.filter((c) => (ids ? ids.has(c.class_id) : c.status !== 'PAST') && inYear(c));
-  const currentTerm = terms.find((t) => Number(t.academic_year) === Number(year) && termStatus(t, today) === 'CURRENT') ?? null;
+  const year = currentYear(terms, today);
+  const currentTerm = selectCurrentTerm(terms, today);
+//   let year = currentYear(terms, today);
+//   // Once a year is promoted its classes are archived, so the dashboard moves to the next year's classes
+//   // (whose predictions start when their first results are published).
+//   if (year != null && (await promotions.getLock(school_id, year))?.status === promotions.RUN_STATUS.APPLIED) year += 1;
+//   // Only classes of the dashboard's year: last year's predictions never appear under this year's class names.
+//   const inYear = (c) => (year == null || c.year == null ? c.status !== 'PAST' : Number(c.year) === Number(year));
+//   const classes = allClasses.filter((c) => (ids ? ids.has(c.class_id) : c.status !== 'PAST') && inYear(c));
+//   const currentTerm = terms.find((t) => Number(t.academic_year) === Number(year) && termStatus(t, today) === 'CURRENT') ?? null;
   const latest = await latestByStudent(school_id, year);
 
   const atRisk = [];
@@ -146,20 +155,38 @@ export async function getRiskDashboard(actor, { school_id }) {
 
   for (const klass of classes) {
     const scope = scopeFor(actor, klass.class_id);
+    const classTeacher = isClassTeacherOf(actor, klass.class_id);
+
     const [roster, logged] = await Promise.all([
       platform.listStudents(school_id, klass.class_id),
-      scope ? interventions.listForClass(school_id, klass.class_id) : [],
+      scope && !isAdmin(actor)
+        ? interventions.listForClass(school_id, klass.class_id)
+        : [],
     ]);
+
     const names = new Map(roster.map((s) => [s.student_id, s]));
 
     if (scope) {
       students += roster.length;
-      const mine = logged.filter((i) => canSeeFactor(scope, i.factor) && i.status === INTERVENTION_STATUS.ONGOING && names.has(i.student_id));
+
+      // Class teachers see all ongoing interventions in their class.
+      // Subject teachers see only interventions they personally created.
+      // Administrators do not receive interventions on this dashboard.
+      const mine = logged.filter((i) =>
+        i.status === INTERVENTION_STATUS.ONGOING &&
+        names.has(i.student_id) &&
+        (
+          classTeacher ||
+          (i.created_by === actor.sub && canSeeFactor(scope, i.factor))
+        )
+      );
       for (const i of mine) {
         const s = names.get(i.student_id);
         ongoing.push({
           intervention_id: i.intervention_id, student_id: i.student_id, student_name: `${s.first_name} ${s.last_name}`,
           class_name: klass.name, factor: i.factor, method: i.method, frequency: i.frequency, started_on: i.started_on,
+          created_by: i.created_by ?? null,
+          created_by_name: i.created_by_name ?? teacherNameById.get(i.created_by) ?? null,
         });
       }
       for (const s of roster) {

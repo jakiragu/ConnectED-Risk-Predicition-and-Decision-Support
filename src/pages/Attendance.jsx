@@ -41,7 +41,12 @@ export default function Attendance() {
     [classes, isAdmin]
   );
   const requested = params.get('class');
-  const classId = (requested && mine.some((c) => c.class_id === requested) ? requested : null) || mine[0]?.class_id || '';
+  const defaultClass = mine.find((c) => c.name.trim().toLowerCase() === 'test') || mine[0];
+
+  const classId =
+    (requested && mine.some((c) => c.class_id === requested) ? requested : null) ||
+    defaultClass?.class_id ||
+    '';
   const termId = params.get('term') || defaultTermId;
   const period = params.get('period') === 'ENDTERM' ? 'ENDTERM' : 'MIDTERM';
   const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classId, term: termId, period, ...next }).filter(([, v]) => v)));

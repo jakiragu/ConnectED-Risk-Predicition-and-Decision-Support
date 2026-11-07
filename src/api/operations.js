@@ -135,7 +135,7 @@ export const RESOLVE_SCORE_CONFLICT = `
 
 export const LIST_TERMS = `
   query ListTerms($school_id: ID!) {
-    listTerms(school_id: $school_id) { term_id name start_date end_date status }
+    listTerms(school_id: $school_id) { term_id name academic_year term_number start_date end_date status }
   }`;
 
 // ------------------------------------------------------------------ results

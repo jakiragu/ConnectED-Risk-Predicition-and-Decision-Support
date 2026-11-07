@@ -42,7 +42,9 @@ export default function ReportCards() {
   // Only the checkpoints this term held: a term without an Opener has no Opener report cards.
   const setup = useCheckpointSetup(actor.schoolId, termId);
   const checkpoint = setup.checkpoints.includes(params.get('cp')) ? params.get('cp') : 'ENDTERM';
-  const classId = params.get('class') || mine[0]?.class_id || '';
+  const defaultClass =
+    mine.find((c) => c.name.trim().toLowerCase() === 'test') || mine[0];
+  const classId = params.get('class') || defaultClass?.class_id || '';
   const go = (next) => setParams(Object.fromEntries(Object.entries({ term: termId, cp: checkpoint, class: classId, ...next }).filter(([, v]) => v)));
 
   const [cards, setCards] = useState([]);

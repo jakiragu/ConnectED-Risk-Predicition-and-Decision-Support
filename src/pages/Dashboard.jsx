@@ -119,6 +119,9 @@ export default function Dashboard() {
     { state: { from: '/dashboard' } }
   );
 
+  const [interventionPages, setInterventionPages] = useState({});
+  const INTERVENTION_PAGE_SIZE = 10;
+
   return (
     <div className="stack">
       <div className="page-head">
@@ -162,19 +165,98 @@ export default function Dashboard() {
             <section className="stack">
               <h2>Logging ongoing interventions</h2>
               {byFrequency.length === 0 && <div className="hint">No interventions under way. Log one from a student&apos;s risk profile.</div>}
-              {byFrequency.map(([f, items]) => (
-                <div key={f}>
-                  <h3 className="sub">{FREQUENCY_LABEL[f]}</h3>
-                  <ul className="plain">
-                    {items.map((i) => (
-                      <li key={i.intervention_id}>
-                        {i.method}, <Link to={`/students/${i.student_id}/risk`} state={{ from: '/dashboard' }}><b>{i.student_name}</b></Link>
-                        <span className="hint"> {i.factor} · since {i.started_on}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              {byFrequency.map(([f, items]) => {
+                const pageCount = Math.ceil(
+                  items.length / INTERVENTION_PAGE_SIZE
+                );
+
+                const page = Math.min(
+                  interventionPages[f] ?? 1,
+                  Math.max(1, pageCount)
+                );
+
+                const start = (page - 1) * INTERVENTION_PAGE_SIZE;
+
+                const pageItems = items.slice(
+                  start,
+                  start + INTERVENTION_PAGE_SIZE
+                );
+
+                return (
+                  <div key={f}>
+                    <h3 className="sub">{FREQUENCY_LABEL[f]}</h3>
+
+                    <ul className="plain">
+                      {pageItems.map((i) => {
+                        const isMine = i.created_by === actor.sub;
+
+                        const creatorName = isMine
+                          ? 'Me'
+                          : i.created_by_name ||
+                            (i.created_by ? 'Another teacher' : 'Unknown teacher');
+
+                        return (
+                          <li key={i.intervention_id}
+                            className={
+                              isMine
+                                ? undefined
+                                : 'intervention-other-teacher'
+                            }
+                          >
+                            {i.method},{' '}
+
+                            <Link to={`/students/${i.student_id}/risk`} state={{ from: '/dashboard' }}
+                            >
+                              <b>{i.student_name}</b>
+                            </Link>
+
+                            <span className="hint">
+                              {' '}{i.factor} · since {i.started_on}
+                              {' '}· Added by {creatorName}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                    {pageCount > 1 && (
+                      <div className="row intervention-pagination">
+                        <span className="hint">
+                          Showing {start + 1}–
+                          {Math.min(start + INTERVENTION_PAGE_SIZE, items.length)}
+                          {' '}of {items.length}
+                        </span>
+
+                        <button type="button" className="btn secondary" disabled={page === 1}
+                          onClick={() =>
+                            setInterventionPages((previous) => ({
+                              ...previous,
+                              [f]: page - 1,
+                            }))
+                          }
+                        >
+                          Previous
+                        </button>
+
+                        <span className="hint">
+                          Page {page} of {pageCount}
+                        </span>
+
+                        <button type="button" className="btn secondary" disabled={page === pageCount}
+                          onClick={() =>
+                            setInterventionPages((previous) => ({
+                              ...previous,
+                              [f]: page + 1,
+                            }))
+                          }
+                        >
+                          Next
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </section>
           )}
 

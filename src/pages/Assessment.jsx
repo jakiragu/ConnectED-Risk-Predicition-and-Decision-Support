@@ -59,7 +59,13 @@ export default function Assessments() {
   }, [actor.schoolId]);
 
   useEffect(() => {
-    if (!classId && classes.length) setParams({ class: classes[0].class_id, term: termId }, { replace: true });
+    if (classId || !classes.length) return;
+
+    const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name));
+    const defaultClass =
+      sorted.find((c) => c.name?.trim().toLowerCase().includes('test')) || sorted[0];
+
+    setParams({ class: defaultClass.class_id, term: termId }, { replace: true });
   }, [classId, classes, termId, setParams]);
 
   const refresh = useCallback(async () => {
