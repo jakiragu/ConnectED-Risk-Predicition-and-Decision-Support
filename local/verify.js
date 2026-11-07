@@ -34,9 +34,9 @@ async function scanEntity(entity) {
   do {
     const page = await ddb.send(new ScanCommand({
       TableName: TABLE,
-      FilterExpression: '#e = :e',
+      FilterExpression: '#e = :e AND PK = :school',
       ExpressionAttributeNames: { '#e': 'entity' },
-      ExpressionAttributeValues: { ':e': entity },
+      ExpressionAttributeValues: { ':e': entity, ':school': pk(SCHOOL) },
       ExclusiveStartKey: cursor,
     }));
     out.push(...(page.Items || []));
@@ -65,28 +65,9 @@ async function run() {
     INDEXES.map((i) => i.name));
   check('change recording is on', Table.StreamSpecification?.StreamEnabled, true);
 
-  // 2. Everything the seed wrote is still there. Rows the app writes are excluded.
-  const appWritten = [
-    'Assessment', 'Score', 'ScoreAudit', 'TermLock', 'PaperSlot', 'ResultSet', 'TermResult', 'ReportCard',
-    'Intervention', 'InterventionMethod', 'ReportCardDownload', 'Attendance', 'StudentResult', 'RiskRun', 'RiskPrediction',
-  ];
-  const names = appWritten.map((_, i) => `:e${i}`);
-  const scanParams = {
-    TableName: TABLE,
-    Select: 'COUNT',
-    FilterExpression: `NOT (#e IN (${names.join(', ')}))`,
-    ExpressionAttributeNames: { '#e': 'entity' },
-    ExpressionAttributeValues: Object.fromEntries(appWritten.map((v, i) => [`:e${i}`, v])),
-  };
-  let total = 0;
-  let cursor;
-  do {
-    const page = await ddb.send(new ScanCommand({ ...scanParams, ExclusiveStartKey: cursor }));
-    total += page.Count || 0;
-    cursor = page.LastEvaluatedKey;
-  } while (cursor);
-  const all = { Count: total };
-  check('seeded items intact', all.Count, 381);
+  // 2. Verify this school without counting optional platform/model records.
+  check('one school record', (await scanEntity('School')).length, 1);
+  check('180 admission number claims', (await scanEntity('AdmissionNo')).length, 180);
 
   // 3. Students, rosters and classes.
   check('students at the school', (await count('STUDENT#')).Count, 180);
@@ -135,9 +116,8 @@ async function run() {
   const t1 = terms.Items.find((t) => t.term_id === 'term_2026_1');
   check('Term 1 school days: 35 to Mid-term, 27 after', attendancePeriods(t1).map((p) => p.school_days), [35, 27]);
 
-  check('term statuses: T1 and T2 past, T3 current',
-    ['term_2026_1', 'term_2026_2', 'term_2026_3'].map((id) => terms.Items.find((t) => t.term_id === id)?.status),
-    ['PAST', 'PAST', 'CURRENT']);
+  check('term statuses use the calendar vocabulary',
+    terms.Items.every((t) => ['PAST', 'CURRENT', 'UPCOMING'].includes(t.status)), true);
   const termById = new Map(terms.Items.map((t) => [t.term_id, t]));
   const inTerm = (termId, iso) => {
     const t = termById.get(termId);
@@ -150,9 +130,23 @@ async function run() {
   const scoreRows = await scanEntity('Score');
   const attendanceRows = await scanEntity('Attendance');
   const resultSets = await scanEntity('ResultSet');
-  check('assessments: 9 classes x 9 subjects x 5 checkpoints', assessmentRows.length, 405);
-  check('scores: one per student per assessment', scoreRows.length, 8100);
-  check('attendance: one per student per checkpoint period', attendanceRows.length, 900);
+  check('assessments: 9 classes x 9 subjects x 3 checkpoints', assessmentRows.length, 243);
+  check('scores: 4860 minus two deliberate T2M gaps', scoreRows.length, 4858);
+  check('attendance: 540 minus three deliberate T2M gaps', attendanceRows.length, 537);
+  const testT2M = assessmentRows.filter((a) => a.class_id === 'cls_test' &&
+    a.term_id === 'term_2026_2' && a.assessment_type === 'MIDTERM');
+  const testStudents = (await scanEntity('Student')).filter((s) => s.class_id === 'cls_test');
+  const scoreKeys = new Set(scoreRows.map((s) => `${s.assessment_id}:${s.student_id}`));
+  const missingScores = testT2M.flatMap((a) => testStudents
+    .filter((s) => !scoreKeys.has(`${a.assessment_id}:${s.student_id}`))
+    .map((s) => `${s.student_id}:${a.subject}`)).sort();
+  check('only the two intended T2M marks are missing', missingScores,
+    ['stu_19001:Kiswahili', 'stu_19004:Kiswahili']);
+  const t2Attendance = new Set(attendanceRows.filter((r) => r.term_id === 'term_2026_2' &&
+    r.period === 'MIDTERM').map((r) => r.student_id));
+  check('only the three intended T2M attendance entries are missing',
+    testStudents.filter((s) => !t2Attendance.has(s.student_id)).map((s) => s.student_id).sort(),
+    ['stu_19001', 'stu_19003', 'stu_19005']);
   check('assessments created and due inside their term',
     [outside(assessmentRows, (r) => r.term_id, (r) => r.created_at), outside(assessmentRows, (r) => r.term_id, (r) => r.due_date)], [0, 0]);
   check('marks entered inside their term', outside(scoreRows, (r) => r.term_id, (r) => r.entered_at), 0);
@@ -160,10 +154,10 @@ async function run() {
   check('attendance never exceeds school days',
     attendanceRows.filter((r) => r.days_attended < 0 || r.days_attended > r.school_days_when_entered).length, 0);
   const published = resultSets.filter((r) => r.published_at);
-  check('45 published result sets (T3 End-term left open)', published.length, 45);
+  check('18 published result sets (Term 1 only)', published.length, 18);
   check('results published inside their term', outside(published, (r) => r.term_id, (r) => r.published_at), 0);
-  check('no Term 3 End-term results seeded',
-    resultSets.filter((r) => r.term_id === 'term_2026_3' && r.checkpoint === 'ENDTERM').length, 0);
+  check('Term 2 and Term 3 remain unpublished for the demo',
+    published.filter((r) => r.term_id !== 'term_2026_1').length, 0);
   const marksByClass = new Map();
   for (const r of scoreRows) {
     if (!marksByClass.has(r.class_id)) marksByClass.set(r.class_id, []);
@@ -174,7 +168,7 @@ async function run() {
 
   // 6b. Risk layer: a prediction with SHAP for every student at every checkpoint.
   const studentRows = await scanEntity('Student');
-  const POINTS = ['T1M', 'T1F', 'T2M', 'T2F', 'T3M'];
+  const POINTS = ['T1M', 'T1F'];
   const predictions = [];
   for (const point of POINTS) {
     for (const s of studentRows) {
@@ -182,8 +176,8 @@ async function run() {
       predictions.push({ point, class_id: s.class_id, p });
     }
   }
-  check('900 predictions, all with SHAP values',
-    [predictions.filter((x) => x.p).length, predictions.filter((x) => x.p?.shap_values).length], [900, 900]);
+  check('360 predictions, all with SHAP values',
+    [predictions.filter((x) => x.p).length, predictions.filter((x) => x.p?.shap_values).length], [360, 360]);
   const flagged = predictions.filter((x) => x.p?.at_risk);
   const classIds = [...new Set(studentRows.map((s) => s.class_id))];
   const missingFlags = [];
@@ -205,17 +199,24 @@ async function run() {
   for (const x of flagged) statusCounts[x.p.counterfactuals?.status] = (statusCounts[x.p.counterfactuals?.status] || 0) + 1;
   console.log(`INFO  flagged ${flagged.length}; counterfactual statuses ${JSON.stringify(statusCounts)}`);
 
-  // 6c. Interventions: some flagged students in every class, driven by their own explanation.
+  // 6c. Interventions link to flagged Term 1 predictions. They may continue
+  // into the holiday; dates are not required to lie inside Term 2.
   const interventionRows = (await scanEntity('Intervention')).filter((r) => String(r.intervention_id || '').startsWith('seed_'));
   const perClass = classIds.map((c) => interventionRows.filter((r) => r.class_id === c).length);
-  check('every class has 1-3 seeded interventions', perClass.every((n) => n >= 1 && n <= 3), true);
-  const t2 = termById.get('term_2026_2');
-  check('intervention dates fall inside Term 2',
-    interventionRows.filter((r) => !(r.started_on >= t2.start_date && r.started_on <= t2.end_date
-      && (!r.stopped_on || (r.stopped_on >= r.started_on && r.stopped_on <= t2.end_date)))).length, 0);
-  const t2m = new Map(predictions.filter((x) => x.point === 'T2M' && x.p).map((x) => [x.p.student_id, x.p]));
-  check('every intervention is for a student flagged at T2M',
-    interventionRows.filter((r) => !t2m.get(r.student_id)?.at_risk).length, 0);
+  check('every class has seeded interventions', perClass.every((n) => n > 0), true);
+  const predictionByKey = new Map(predictions.filter((x) => x.p)
+    .map((x) => [`${x.point}:${x.p.student_id}`, x.p]));
+  check('every intervention links to a flagged Term 1 prediction',
+    interventionRows.filter((r) => !predictionByKey.get(`${r.linked?.prediction_point}:${r.student_id}`)?.at_risk).length, 0);
+  check('every flagged student/checkpoint has an intervention',
+    flagged.filter((x) => !interventionRows.some((r) =>
+      r.student_id === x.p.student_id && r.linked?.prediction_point === x.point)).length, 0);
+  check('intervention dates follow their prediction and stop after starting',
+    interventionRows.filter((r) => {
+      const date = r.linked?.prediction_point === 'T1M' ? t1.mid_term_date : t1.end_date;
+      return !r.started_on || r.started_on < date ||
+        (r.status === 'STOPPED' && (!r.stopped_on || r.stopped_on < r.started_on));
+    }).length, 0);
   const bySubject = {};
   for (const r of interventionRows) bySubject[r.factor] = (bySubject[r.factor] || 0) + 1;
   console.log(`INFO  ${interventionRows.length} interventions by subject ${JSON.stringify(bySubject)}`);

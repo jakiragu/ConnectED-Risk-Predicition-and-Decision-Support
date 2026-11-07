@@ -524,14 +524,6 @@ details.more[open] > summary { margin-bottom: var(--space-2); }
   .intervention .actions { justify-content: flex-start; }
 }
 
-.intervention-other-teacher {
-  opacity: 0.55;
-}
-.intervention-pagination {
-  justify-content: flex-end;
-  margin-top: var(--space-3);
-}
-
 /* ---- expandable risk table ---- */
 .risk-student-row {
   cursor: pointer;

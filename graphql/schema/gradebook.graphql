@@ -1417,8 +1417,6 @@ type DashboardIntervention {
   method: String!
   frequency: InterventionFrequency!
   started_on: AWSDate!
-  created_by: ID
-  created_by_name: String
 }
 
 type DashboardAssessment {

@@ -2,42 +2,6 @@ export const PERIODS = ['MIDTERM', 'ENDTERM'];
 export const PERIOD_LABEL = { MIDTERM: 'Start of term to Mid-term', ENDTERM: 'Mid-term to end of term' };
 export const TERM_NUMBERS = [1, 2, 3];
 export const MAX_CLOSURES = 20;
-export const DEFAULT_TERM_NUMBER = 2;
-
-
-export function currentYear(terms, today = todayIn()) {
-  const years = terms
-    .map((t) => Number(t.academic_year))
-    .filter(Number.isFinite);
-
-  const started = terms
-    .filter((t) => t.start_date && t.start_date <= today)
-    .map((t) => Number(t.academic_year))
-    .filter(Number.isFinite);
-
-  if (started.length) return Math.max(...started);
-  return years.length ? Math.min(...years) : null;
-}
-
-export function currentTerm( terms, today = todayIn(), preferredTermNumber = DEFAULT_TERM_NUMBER) {
-  const year = currentYear(terms, today);
-  if (year == null) return null;
-
-  const yearTerms = terms.filter(
-    (t) => Number(t.academic_year) === Number(year)
-  );
-
-  return (
-    yearTerms.find(
-      (t) => Number(t.term_number) === Number(preferredTermNumber)
-    ) ||
-    yearTerms.find((t) => termStatus(t, today) === 'CURRENT') ||
-    [...yearTerms].sort(
-      (a, b) => Number(a.term_number) - Number(b.term_number)
-    ).at(-1) ||
-    null
-  );
-}
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

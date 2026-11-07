@@ -86,13 +86,8 @@ export default function AssessmentForm() {
   }, [termId, defaultTermId, isEdit]);
 
   useEffect(() => {
-    if (isEdit || classId || !classes.length) return;
-
-    const defaultClass =
-      classes.find((c) => c.name.trim().toLowerCase() === 'test') || classes[0];
-
-    setClassId(defaultClass.class_id);
-  }, [isEdit, classId, classes]);
+    repository.loadClasses(actor.schoolId).catch((e) => setFailure(e.message));
+  }, [actor.schoolId]);
 
   // A new assessment starts on the term's first exam; switching to a term without an Opener moves it off the Opener.
   const heldKey = setup.checkpoints.join(',');

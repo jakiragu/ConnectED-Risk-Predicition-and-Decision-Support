@@ -10,7 +10,7 @@ import * as assessments from '../../library/assessmentRepo.js';
 import * as interventions from '../../library/interventionRepo.js';
 import * as platform from '../../library/platformRepo.js';
 import * as risk from '../../library/riskRepo.js';
-import { latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
+import { currentYear, latestOf, scopeFor, studentContext, studentYear, visibleInterventions, zone } from '../../library/riskProfile.js';
 
 /**
  * Decision support reads (FR-11, US-01..US-06): a student's risk profile, a

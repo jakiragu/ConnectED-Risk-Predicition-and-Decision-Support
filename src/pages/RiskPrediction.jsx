@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { parseColumn } from '@gradebook/domain/explanations';
 import { gql } from '../api/graphql.js';
-import { DEFAULT_TERM_NUMBER } from '@gradebook/domain/calendar';
 import { GET_FEATURE_READINESS, GET_STUDENT_FEATURES, LIST_TERMS_FULL } from '../api/calendarOperations.js';
 import {
   GET_RISK_EXPLANATION, GET_RISK_IMPORTANCE, GET_RISK_MODEL, GET_RISK_RUN, LIST_RISK_PREDICTIONS, RUN_RISK_PREDICTIONS,
@@ -89,15 +88,9 @@ export default function RiskPrediction() {
     [classes, isAdmin]
   );
   const canAll = isAdmin && mine.length > 1;
-  const defaultClass =
-    mine.find((c) => c.name.trim().toLowerCase() === 'test');
-  const classParam =
-    params.get('class') || defaultClass?.class_id || (canAll ? ALL : mine[0]?.class_id) || '';
+  const classParam = params.get('class') || (canAll ? ALL : mine[0]?.class_id) || '';
   const all = classParam === ALL;
-  const point =
-    POINTS.find((p) => p.value === params.get('point')) ||
-    POINTS.find((p) => p.term_number === DEFAULT_TERM_NUMBER) ||
-    POINTS[0];
+  const point = POINTS.find((p) => p.value === params.get('point')) || POINTS[0];
   const go = (next) => setParams(Object.fromEntries(Object.entries({ class: classParam, point: point.value, ...next }).filter(([, v]) => v)));
   const shown = useMemo(() => (all ? mine : mine.filter((c) => c.class_id === classParam)), [all, mine, classParam]);
   const detailSectionRef = useRef(null);

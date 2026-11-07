@@ -14,6 +14,7 @@
   "points": {
     "T1M": {
       "file": "T1M.json",
+      "sha256": "f94e5ab365990150efa50d4b087c86e65862eaa5192313a09df419e5a95020b0",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -67,6 +68,7 @@
     },
     "T1F": {
       "file": "T1F.json",
+      "sha256": "b33be6779c0a5234f34ac1897c8566eca362f7959aef70e3c7c49d1e0f0a86ed",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -140,6 +142,7 @@
     },
     "T2M": {
       "file": "T2M.json",
+      "sha256": "6f5e15b3d48ba70c3ea54921c2d2308f1479eed95da8a792ea67c7f6e5a14cd3",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -233,6 +236,7 @@
     },
     "T2F": {
       "file": "T2F.json",
+      "sha256": "c3d985c14cc00f21e58d99cbff8338beae696f7dda36c26681b5b885e5a74400",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -346,6 +350,7 @@
     },
     "T3M": {
       "file": "T3M.json",
+      "sha256": "6f1d0ee55bcaa96502845b24078654d8c6c8ce7b62d40dedbbaee24ec997502d",
       "features": [
         "T1M_Mathematics",
         "T1M_English",
@@ -480,6 +485,7 @@
   },
   "counterfactual_stats": {
     "file": "counterfactual-stats.json",
+    "sha256": "b63d94352ef5c4abf22e83654107f893295616393682b55469e6eb1c8caa3a8e",
     "settings": {
       "target_percentile": 75,
       "mark_cap_percentile": 90,

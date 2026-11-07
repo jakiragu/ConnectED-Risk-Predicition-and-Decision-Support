@@ -6,7 +6,7 @@ import { TABLE, pk, sk, gsi1, gsi2, gsi3 } from '../backend/library/keys.js';
 import { ensureTable } from './create-table.js';
 import * as identity from '../backend/library/identity.js';
 import { seedPublishedHistory } from './seed-history.js';
-import { attendancePeriods } from '../backend/library/calendar.js';
+import { attendancePeriods, termStatus, todayIn } from '../backend/library/calendar.js';
 import * as platformIdentity from '../backend/library/platformIdentity.js';
 import { putStaff, registrationItems } from '../backend/library/platformStore.js';
 import { DEFAULT_ASSESSMENT_SCHEME } from '../backend/library/assessmentConfig.js';
@@ -207,7 +207,6 @@ const TERMS = [
     // Term 1 closes on the last teaching day before Good Friday (3 April), so
     // End-term publication does not fall on a public holiday.
     end_date: '2026-04-02',
-    status: 'PAST',
     closures: [
       { from: '2026-02-26', to: '2026-03-01', label: 'Half-term break' },
     ],
@@ -220,7 +219,6 @@ const TERMS = [
     start_date: '2026-05-04',
     mid_term_date: '2026-06-19',
     end_date: '2026-08-07',
-    status: 'CURRENT',
     closures: [
       { from: '2026-06-01', to: '2026-06-01', label: 'Madaraka Day' },
       { from: '2026-06-25', to: '2026-06-28', label: 'Half-term break' },
@@ -234,14 +232,16 @@ const TERMS = [
     start_date: '2026-08-31',
     mid_term_date: '2026-09-25',
     end_date: '2026-10-30',
-    status: 'FUTURE',
     closures: [
       { from: '2026-10-20', to: '2026-10-20', label: 'Mashujaa Day' },
     ],
   },
 ];
 
+// Use main's calendar rules; seeding does not force a current term.
+const seedToday = todayIn(process.env.SCHOOL_TIME_ZONE || 'Africa/Nairobi');
 for (const term of TERMS) {
+  term.status = termStatus(term, seedToday);
   items.push({
     PK: pk(SCHOOL),
     SK: sk.gradeRule(term.term_id),
@@ -286,8 +286,7 @@ for (const form of [2, 4]) {
       grade: `Form ${form}`,
       stream,
       year: 2026,
-      status: 'CURRENT',
-      _version: 1,
+        _version: 1,
     });
   }
 }
@@ -818,7 +817,7 @@ async function run() {
 
   console.log(`Seeded ${items.length} items into ${TABLE}`);
   console.log(`  school        ${SCHOOL}`);
-  console.log(`  default term  ${TERM}`);
+
   console.log(`  classes       ${classes.length + 1}`);
   console.log(`  students      ${students.length}`);
   console.log(`  test class    ${TEST_CLASS.name} (${TEST_CLASS.classId})`);
