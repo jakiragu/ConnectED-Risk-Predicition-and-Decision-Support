@@ -9,6 +9,7 @@ import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { DangerButton, ActionIcon } from '../components/ui.jsx';
+import { LIST_RISK_PREDICTIONS } from '../api/riskOperations.js';
 import { classLabel, isCurrent, sortClasses } from '../classLabels.js';
 
 const statusText = (s) => (s.status === 'ACTIVE' ? 'Active'
@@ -16,6 +17,7 @@ const statusText = (s) => (s.status === 'ACTIVE' ? 'Active'
   : s.departure_kind === 'TEMPORARY' ? 'Temporarily deactivated' : s.left_year ? `Left ${s.left_year}` : 'Deactivated');
 
 const EMPTY = { first_name: '', last_name: '', admission_no: '' };
+const PREDICTION_POINTS = ['T1M', 'T1F', 'T2M', 'T2F', 'T3M'];
 
 export default function Students() {
   const { classId } = useParams();
@@ -40,8 +42,47 @@ export default function Students() {
   }, [actor.schoolId]);
 
   const load = useCallback(async () => {
-    const { listStudents } = await gql(LIST_STUDENTS, { school_id: actor.schoolId, class_id: classId, include_inactive: true });
-    setStudents(listStudents);
+    const [studentResult, ...predictionResults] = await Promise.all([
+      gql(LIST_STUDENTS, {
+        school_id: actor.schoolId,
+        class_id: classId,
+        include_inactive: true,
+      }),
+      ...PREDICTION_POINTS.map((prediction_point) =>
+        gql(LIST_RISK_PREDICTIONS, {
+          school_id: actor.schoolId,
+          class_id: classId,
+          prediction_point,
+        })
+      ),
+    ]);
+
+    const pointOrder = new Map(
+      PREDICTION_POINTS.map((point, index) => [point, index])
+    );
+
+    const latestRisk = new Map();
+
+    predictionResults.forEach(({ listRiskPredictions }) => {
+      listRiskPredictions.forEach((prediction) => {
+        const previous = latestRisk.get(prediction.student_id);
+
+        if (
+          !previous ||
+          pointOrder.get(prediction.prediction_point) >
+            pointOrder.get(previous.prediction_point)
+        ) {
+          latestRisk.set(prediction.student_id, prediction);
+        }
+      });
+    });
+
+    setStudents(
+      studentResult.listStudents.map((student) => ({
+        ...student,
+        risk: latestRisk.get(student.student_id) || null,
+      }))
+    );
   }, [actor.schoolId, classId]);
 
   useEffect(() => {
@@ -129,7 +170,7 @@ export default function Students() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Admission no</th><th>First name</th><th>Last name</th><th>Status</th><th>Risk</th>{canManage && <th>Action</th>}</tr>
+            <tr><th>Admission no</th><th>First name</th><th>Last name</th><th>Status</th><th>Risk</th><th>Action</th></tr>
           </thead>
           <tbody>
             {shown.length === 0 && <tr className="empty"><td colSpan={6}>No students.</td></tr>}
@@ -164,42 +205,66 @@ export default function Students() {
                   <td>{s.admission_no}</td>
                   <td>{s.first_name}</td>
                   <td>{s.last_name}</td>
-                  <td>{s.status === 'ACTIVE' ? 'Active' : <span className={s.status === 'GRADUATED' ? 'hint' : 'warn'}>{statusText(s)}</span>}</td>
-                  <td><Link to={`/students/${s.student_id}/risk`} state={{ from: `/classes/${classId}/students` }}>Risk profile</Link></td>
-                  {canManage && s.status === 'GRADUATED' && <td className="hint">Read-only record</td>}
-                  {canManage && s.status !== 'GRADUATED' && (
+                  <td>{s.status === 'ACTIVE' ? 'Active' : <span className="warn">Deactivated</span>}</td>
+                  <td>
+                    {s.risk ? (
+                      <div className="stack">
+                        <strong>{Math.round(s.risk.probability * 100)}%</strong>
+                        <span className={s.risk.at_risk ? 'risk' : 'good'}>
+                          {s.risk.at_risk ? 'At risk' : 'Not at risk'}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="hint">Not available</span>
+                    )}
+                  </td>
+                  {canManage && (
                     <td className="actions student-actions">
                     <div className="row-actions">
-                      <button type="button" className="btn link" aria-label={`Edit ${s.first_name} ${s.last_name}`} title="Edit"
-                        onClick={() => {
-                          setEditing(s.student_id);
-                          setDraft({
-                            first_name: s.first_name,
-                            last_name: s.last_name,
-                            admission_no: s.admission_no
-                          });
-                        }}
-                      >
-                        <ActionIcon name="edit" />
-                      </button>
-                      {s.status === 'ACTIVE' ? (
-                        <DangerButton className="link" aria-label={`Deactivate ${s.first_name} ${s.last_name}`} title="Deactivate"
-                          onClick={() => setDeparture({ student: s, departure_kind: 'TEMPORARY', deactivation_reason: '', deactivation_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }) })}
+                      <Link to={`/students/${s.student_id}/risk`} state={{ from: `/classes/${classId}/students` }}
+                        className="btn link" aria-label={`View profile for ${s.first_name} ${s.last_name}`} title="Profile">
+                        <ActionIcon name="users" />
+                      </Link>
+                      {canManage && (
+                        <>
+                        <button type="button" className="btn link" aria-label={`Edit ${s.first_name} ${s.last_name}`} title="Edit"
+                          onClick={() => {
+                            setEditing(s.student_id);
+                            setDraft({
+                              first_name: s.first_name,
+                              last_name: s.last_name,
+                              admission_no: s.admission_no
+                            });
+                          }}
                         >
-                          <ActionIcon name="archive" />
-                        </DangerButton>
-                      ) : !archived && (
-                        <button type="button" className="btn link" aria-label={`Reactivate ${s.first_name} ${s.last_name}`} title="Reactivate"
-                          onClick={() =>
-                            run(
-                              SET_STUDENT_STATUS,
-                              { student_id: s.student_id, status: 'ACTIVE', _version: s._version },
-                              'Student reactivated'
-                            )
-                          }
-                        >
-                          <ActionIcon name="restore" />
+                          <ActionIcon name="edit" />
                         </button>
+                        {s.status === 'ACTIVE' ? (
+                          <DangerButton className="link" aria-label={`Deactivate ${s.first_name} ${s.last_name}`} title="Deactivate"
+                            onClick={() =>
+                              window.confirm(
+                                `Deactivate ${s.first_name} ${s.last_name}? They leave the class list; their marks and report cards stay.`
+                              ) &&
+                              run(
+                                SET_STUDENT_STATUS,
+                                { student_id: s.student_id, status: 'INACTIVE', _version: s._version },
+                                'Student deactivated'
+                              )
+                            }
+                          >
+                            <ActionIcon name="archive" />
+                          </DangerButton>
+                        ) : (
+                          <button type="button" className="btn link" aria-label={`Reactivate ${s.first_name} ${s.last_name}`} title="Reactivate"
+                            onClick={() =>
+                              run(
+                                SET_STUDENT_STATUS,
+                                { student_id: s.student_id, status: 'ACTIVE', _version: s._version },
+                                'Student reactivated'
+                              )
+                            }
+                          >
+                            <ActionIcon name="restore" />
                       )}
                       {/* An admin can move a student who is active, or one who left from an archived class and came back. */}
                       {isAdmin && (s.status === 'ACTIVE' || archived) && (
@@ -212,6 +277,19 @@ export default function Students() {
                               && run(TRANSFER_STUDENT, { student_id: s.student_id, to_class_id: transfer[s.student_id], _version: s._version }, 'Student moved')}>
                             Move
                           </button>
+                        )}
+                        {isAdmin && s.status === 'ACTIVE' && (
+                          <>
+                            <Select className="move-class-select" aria-label="Move to class" value={transfer[s.student_id] || ''}
+                              onChange={(v) => setTransfer({ ...transfer, [s.student_id]: v })}
+                              options={destinations.map((c) => ({ value: c.class_id, label: c.name }))} placeholder="Move to…" />
+                            <button type="button" className="btn link" disabled={!transfer[s.student_id]}
+                              onClick={() => window.confirm('Move this student? Marks already recorded stay with this class.')
+                                && run(TRANSFER_STUDENT, { student_id: s.student_id, to_class_id: transfer[s.student_id], _version: s._version }, 'Student moved')}>
+                              Move
+                            </button>
+                          </>
+                        )}
                         </>
                       )}
                     </div>

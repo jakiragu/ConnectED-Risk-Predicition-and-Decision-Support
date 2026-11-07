@@ -4,8 +4,10 @@ import { backTo } from '../navigation.js';
 import { CHECKPOINT_ORDER, FREQUENCY_LABEL } from '@gradebook/domain/decision';
 import { CHECKPOINT_LABEL } from '@gradebook/domain/targets';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { Select } from '../components/Field.jsx';
 import LineChart from '../components/LineChart.jsx';
 import { influenceItems, summarise, Targets } from '../components/RiskExplanation.jsx';
+import SubjectPerformanceChart from '../components/SubjectPerformanceChart.jsx';
 import { InfluenceChart } from '../components/ui.jsx';
 import { repository } from '../offline/repository.js';
 import { useSync } from '../offline/useSync.js';
@@ -43,6 +45,207 @@ function Outcome({ i }) {
   );
 }
 
+function AssessmentPanel({
+  heading,
+  entry,
+  options,
+  value,
+  onChange,
+  targetIndex,
+  onTargetIndexChange,
+  allowTargetSelection = false,
+  isCurrent,
+}) {
+  const prediction = entry?.prediction;
+  const results = entry?.results;
+  const factors = entry?.factors ?? [];
+  const interventions = entry?.interventions ?? [];
+
+  return (
+    <div className="card stack assessment-panel">
+      <div className="assessment-panel-heading">
+        <div>
+          <h2>{heading}</h2>
+          {prediction && <div className="hint">{prediction.label}</div>}
+        </div>
+
+        <label className="assessment-picker">
+          <span>Assessment checkpoint</span>
+          <Select
+            value={value ?? ''}
+            onChange={onChange}
+            options={options}
+            placeholder="No assessment available"
+            disabled={!options.length}
+            aria-label={`${heading} checkpoint`}
+          />
+        </label>
+      </div>
+
+      {!entry ? (
+        <div className="hint">No assessment is available for comparison.</div>
+      ) : (
+        <>
+          {/* 1. Estimated risk */}
+          <div className="assessment-risk">
+            <span>Estimated risk:</span>
+
+            <b className={prediction.at_risk ? 'risk' : ''}>
+              {pct(prediction.probability)}
+            </b>
+
+            <span className={`pill ${prediction.at_risk ? 'risk' : 'good'}`}>
+              {prediction.at_risk ? 'At risk' : 'Not flagged'}
+            </span>
+
+            {isCurrent === false && (
+              <span className="pill recording">Not current</span>
+            )}
+          </div>
+
+          {/* 2. Results */}
+          <h3>Subject results</h3>
+
+          {results ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th>Result</th>
+                    <th>Grade</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {results.subjects.map((s) => (
+                    <tr key={s.subject}>
+                      <td>{s.subject}</td>
+                      <td>{mark(s.score)}</td>
+                      <td>{s.grade ?? '—'}</td>
+                    </tr>
+                  ))}
+
+                  {results.average != null && (
+                    <tr>
+                      <td><b>Average</b></td>
+                      <td><b>{mark(results.average)}</b></td>
+                      <td />
+                    </tr>
+                  )}
+
+                  {results.subjects.length === 0 && (
+                    <tr className="empty">
+                      <td colSpan={3}>No subject results available.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="hint">
+              No published results are associated with this checkpoint.
+            </div>
+          )}
+
+          {/* 3. SHAP explanation */}
+          <h3>What moved the estimate</h3>
+
+          {!entry.explained ? (
+            <div className="hint">
+              This estimate was made before explanations were available.
+            </div>
+          ) : factors.length ? (
+            <>
+              {summarise(factors) && (
+                <div>{summarise(factors)}</div>
+              )}
+              <InfluenceChart items={influenceItems(factors)} />
+            </>
+          ) : (
+            <div className="hint">
+              No visible factor contributions are available.
+            </div>
+          )}
+
+          {/* 4. Model-generated targets */}
+          <h3>Model-generated targets</h3>
+
+          {entry.targets ? (
+            <>
+              {entry.targets.partial && (
+                <div className="hint">
+                  Showing only the targets within your subject scope.
+                </div>
+              )}
+
+              {entry.targets.partial &&
+                !entry.targets.options.length &&
+                ['FOUND', 'FALLBACK'].includes(entry.targets.status) ? (
+                  <div className="hint">
+                    The targets do not involve your subjects.
+                  </div>
+                ) : (
+                  <Targets
+                    targets={entry.targets}
+                    selectedIndex={targetIndex}
+                    onSelectedIndexChange={onTargetIndexChange}
+                    allowSelection={allowTargetSelection}
+                  />
+                )}
+            </>
+          ) : (
+            <div className="hint">
+              {prediction.at_risk
+                ? 'No model-generated targets were available for this prediction.'
+                : 'Not flagged at risk, so no targets were generated.'}
+            </div>
+          )}
+
+          {/* 5. Interventions */}
+          <h3>Interventions linked to this assessment</h3>
+
+          {interventions.length === 0 ? (
+            <div className="hint">
+              No interventions were logged against this prediction.
+            </div>
+          ) : (
+            <ul className="plain">
+              {interventions.map((i) => (
+                <li key={i.intervention_id}>
+                  <b>{i.method}</b>
+
+                  <span className="hint">
+                    {' '}({i.factor}, {FREQUENCY_LABEL[i.frequency]?.toLowerCase() ?? i.frequency})
+                  </span>
+
+                  <div className="hint">
+                    Started: {i.started_on} ·{' '}
+                    {i.status === 'ONGOING'
+                      ? 'Ongoing'
+                      : `Stopped ${i.stopped_on}`}
+                  </div>
+
+                  <div>
+                    Target:{' '}
+                    {i.linked?.target
+                      ? `+${i.linked.target.gain} (${mark(i.linked.target.from)} to ${mark(i.linked.target.to)})`
+                      : 'None set'}
+                  </div>
+
+                  <div>
+                    Result: <Outcome i={i} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * A student's risk profile: the latest prediction with its explanation and
  * targets, how risk and results moved through the year, and the interventions
@@ -60,6 +263,9 @@ export default function StudentProfile() {
   const [year, setYear] = useState(null); // null: the current school year
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [laterAssessmentPoint, setLaterAssessmentPoint] = useState(null);
+  const [earlierAssessmentPoint, setEarlierAssessmentPoint] = useState(null);
+  const [laterTargetIndex, setLaterTargetIndex] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -75,6 +281,110 @@ export default function StudentProfile() {
   const p = view.data;
   if (error) return <div className="stack"><Link to="/dashboard">Back</Link><div className="notice">{error}</div></div>;
   if (!p) return <div className="hint">{loading ? 'Loading…' : 'This profile has not been opened on this device before, so it cannot be shown offline.'}</div>;
+  const assessmentHistory = (p.assessment_history || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) -
+        CHECKPOINT_ORDER.indexOf(b.prediction.prediction_point)
+    );
+
+  // The first panel defaults to the newest available prediction.
+  const defaultLaterAssessment = assessmentHistory.at(-1) ?? null;
+
+  const laterAssessment =
+    assessmentHistory.find(
+      (a) => a.prediction.prediction_point === laterAssessmentPoint
+    ) ?? defaultLaterAssessment;
+
+  const laterPoint =
+    laterAssessment?.prediction.prediction_point ?? null;
+
+  const laterIndex = laterPoint
+    ? CHECKPOINT_ORDER.indexOf(laterPoint)
+    : -1;
+
+  // The second panel must always contain an earlier checkpoint.
+  const earlierAssessment =
+    assessmentHistory.find(
+      (a) =>
+        a.prediction.prediction_point === earlierAssessmentPoint &&
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
+    ) ??
+    assessmentHistory
+      .filter(
+        (a) =>
+          CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
+      )
+      .at(-1) ??
+    null;
+
+  const earlierPoint =
+    earlierAssessment?.prediction.prediction_point ?? null;
+
+  const earlierIndex = earlierPoint
+    ? CHECKPOINT_ORDER.indexOf(earlierPoint)
+    : -1;
+
+  // Later panel: only checkpoints after the earlier panel's selection.
+  const laterOptions = assessmentHistory
+    .filter(
+      (a) =>
+        earlierIndex === -1 ||
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) > earlierIndex
+    )
+    .slice()
+    .reverse()
+    .map((a) => ({
+      value: a.prediction.prediction_point,
+      label: a.prediction.label,
+    }));
+
+  // Earlier panel: only checkpoints before the later panel's selection.
+  const earlierOptions = assessmentHistory
+    .filter(
+      (a) =>
+        laterIndex !== -1 &&
+        CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < laterIndex
+    )
+    .slice()
+    .reverse()
+    .map((a) => ({
+      value: a.prediction.prediction_point,
+      label: a.prediction.label,
+    }));
+
+    // Targets are selectable only for the most recent, current prediction.
+    const canSwitchLaterTargets =
+      Boolean(laterPoint) &&
+      laterPoint === p.latest?.prediction_point &&
+      p.current === true;
+
+    const handleLaterAssessmentChange = (point) => {
+    const newIndex = CHECKPOINT_ORDER.indexOf(point);
+
+    // If the current earlier selection is no longer valid,
+    // move it to the nearest available earlier checkpoint.
+    if (earlierIndex >= newIndex) {
+      const replacement = assessmentHistory
+        .filter(
+          (a) =>
+            CHECKPOINT_ORDER.indexOf(a.prediction.prediction_point) < newIndex
+        )
+        .at(-1);
+
+      setEarlierAssessmentPoint(
+        replacement?.prediction.prediction_point ?? null
+      );
+    }
+
+    setLaterAssessmentPoint(point);
+    setLaterTargetIndex(0);
+  };
+
+  const handleEarlierAssessmentChange = (point) => {
+    setEarlierAssessmentPoint(point);
+  };
 
   const points = CHECKPOINT_ORDER.filter((c) => p.risk_trend.some((r) => r.prediction_point === c) || p.performance_trend.some((r) => r.point === c));
   const riskAt = new Map(p.risk_trend.map((r) => [r.prediction_point, r.probability * 100]));
@@ -93,26 +403,32 @@ export default function StudentProfile() {
 
       <div className="card profile-head">
         <h1>{p.student.first_name} {p.student.last_name}</h1>
-        <div>
-          Admission no: <b>{p.student.admission_no}</b> · Class: <b>{p.student.class_name ?? '—'}</b>
-          {p.student.status === 'GRADUATED' && <> · <b>Graduated{p.student.graduation_year ? ` ${p.student.graduation_year}` : ''}</b></>}
-          {p.student.status === 'INACTIVE' && <> · <b className="warn">Not active</b></>}
+
+        <div className="profile-student-info profile-info">
+          <div>
+            Admission no: <b>{p.student.admission_no}</b>
+          </div>
+          <div>
+            Class: <b>{p.student.class_name ?? '—'}</b>
+          </div>
         </div>
-        {years.length > 1 && (
-          <label className="choice-inline">
-            School year{' '}
-            <select value={String(p.academic_year)} onChange={(e) => setYear(Number(e.target.value) === years[0] ? null : Number(e.target.value))}>
-              {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
-            </select>
-            {p.year_class_name && <span className="hint">in {p.year_class_name}</span>}
-          </label>
-        )}
-        {active && !viewingPast && (
-          <Link className="btn primary" to={`/students/${studentId}/interventions`} state={{ from: backTo(location) }}>Log or update interventions</Link>
-        )}
+
+        <div className="profile-teaching-info profile-info">
+          <div>
+            Subjects taught:{' '}
+            <b>{p.teaching?.subjects?.length
+              ? p.teaching.subjects.join(', ')
+              : 'No subject assignments available'}</b>
+          </div>
+
+          {p.teaching?.isClassTeacher && (
+            <span className="pill good">Class teacher</span>
+          )}
+        </div>
       </div>
       {!active && <div className="notice">This student has {p.student.status === 'GRADUATED' ? 'graduated' : 'left the school'}. Their record is read-only.</div>}
       {active && viewingPast && <div className="notice">You are looking at {p.academic_year}, an earlier school year. Interventions are logged against the current year.</div>}
+
 
       {!p.scope.all && (
         <div className="hint">You see {p.scope.factors.join(' and ')}: the subject{p.scope.factors.length === 1 ? '' : 's'} you teach this student. The class teacher sees every subject and attendance.</div>
@@ -125,70 +441,28 @@ export default function StudentProfile() {
         </div>
       )}
 
-      <div className="profile-grid">
-        <div className="card stack">
-          <h2>{p.results ? `${p.results.label} (latest results)` : 'Latest results'}</h2>
-          {latest && (
-            <div>
-              Estimated risk at {latest.label}: <b className={latest.at_risk ? 'risk' : ''}>{pct(latest.probability)}</b>
-              {latest.at_risk ? ` (at or above the model's ${pct(latest.threshold)} threshold)` : ` (below the model's ${pct(latest.threshold)} threshold)`}
-              {!p.current && <span className="pill recording"> not current</span>}
-            </div>
-          )}
-          {p.results ? (
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>Subject</th><th>Result</th><th>Grade</th></tr></thead>
-                <tbody>
-                  {p.results.subjects.map((s) => <tr key={s.subject}><td>{s.subject}</td><td>{mark(s.score)}</td><td>{s.grade ?? '—'}</td></tr>)}
-                  {p.results.average != null && <tr><td><b>Average</b></td><td><b>{mark(p.results.average)}</b></td><td /></tr>}
-                </tbody>
-              </table>
-            </div>
-          ) : <div className="hint">No published results this school year yet.</div>}
+      <div className="profile-grid assessment-comparison">
+        <AssessmentPanel
+          heading="Later Assessment"
+          entry={laterAssessment}
+          options={laterOptions}
+          value={laterPoint ?? ''}
+          onChange={handleLaterAssessmentChange}
+          targetIndex={laterTargetIndex}
+          onTargetIndexChange={setLaterTargetIndex}
+          allowTargetSelection={canSwitchLaterTargets}
+          isCurrent={canSwitchLaterTargets}
+        />
 
-          {latest && (
-            <>
-              <h3>What moved the estimate</h3>
-              {!p.explained && <div className="hint">This estimate was made before explanations were added.</div>}
-              {p.explained && (
-                <>
-                  {summarise(p.factors) && <div>{summarise(p.factors)}</div>}
-                  <InfluenceChart items={influenceItems(p.factors)} />
-                </>
-              )}
-              <h3>Targets</h3>
-              {p.targets ? (
-                <>
-                  {p.targets.partial && <div className="hint">Showing only your subjects&apos; part of each target.</div>}
-                  {p.targets.partial && !p.targets.options.length && ['FOUND', 'FALLBACK'].includes(p.targets.status)
-                    ? <div className="hint">The targets for this student do not involve your subjects.</div>
-                    : <Targets targets={p.targets} />}
-                </>
-              ) : <div className="hint">{latest.at_risk ? 'No targets were worked out for this prediction.' : 'Not flagged at risk, so no targets.'}</div>}
-            </>
-          )}
-        </div>
-
-        <div className="card stack">
-          <h2>{p.previous ? `${p.previous.label} (previous prediction)` : 'Previous prediction'}</h2>
-          {!p.previous && <div className="hint">There is no earlier prediction this school year.</div>}
-          {p.previous && (
-            <>
-              <div>Estimated risk: <b className={p.previous.at_risk ? 'risk' : ''}>{pct(p.previous.probability)}</b></div>
-              <h3>Interventions after it</h3>
-              {previousInterventions.length === 0 && <div className="hint">None were logged against this prediction.</div>}
-              <ul className="plain">
-                {previousInterventions.map((i) => (
-                  <li key={i.intervention_id}>
-                    <b>{i.method}</b> <span className="hint">({i.factor}, {FREQUENCY_LABEL[i.frequency].toLowerCase()})</span>
-                    <div>Target: {i.linked?.target ? `+${i.linked.target.gain} (${mark(i.linked.target.from)} to ${mark(i.linked.target.to)})` : 'none set'} · Result: <Outcome i={i} /></div>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
+        <AssessmentPanel
+          heading="Earlier Assessment"
+          entry={earlierAssessment}
+          options={earlierOptions}
+          value={earlierPoint ?? ''}
+          onChange={handleEarlierAssessmentChange}
+          targetIndex={0}
+          allowTargetSelection={false}
+        />
       </div>
 
       <div className="two-col">
@@ -213,8 +487,15 @@ export default function StudentProfile() {
       {p.scope.all && subjects.length > 0 && (
         <div className="card stack">
           <h2>Results by subject</h2>
-          <LineChart title="Results by subject and checkpoint" labels={points.map((c) => SHORT[c])}
-            series={subjects.map((s) => ({ name: s, values: points.map((c) => resultsAt.get(c)?.subjects.find((x) => x.subject === s)?.score ?? null) }))} />
+          <SubjectPerformanceChart
+            performanceTrend={p.performance_trend}
+            subjects={subjects}
+            targetOption={
+              canSwitchLaterTargets
+                ? laterAssessment?.targets?.options?.[laterTargetIndex] ?? null
+                : null
+            }
+          />
         </div>
       )}
 

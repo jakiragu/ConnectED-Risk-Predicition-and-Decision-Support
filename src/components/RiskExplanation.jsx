@@ -39,20 +39,56 @@ export const influenceItems = (factors) => factors.map((f) => ({
 }));
 
 /** The targets for the next checkpoint, as a short table. */
-export function Targets({ targets: t }) {
-  if (!t) return null;
-  if (t.status === 'MAINTAIN') return <Notice tone="success">Keeping the current results and attendance should be enough for the {t.target_label}.</Notice>;
-  if (t.status === 'NONE') return <div className="hint">No target: {t.reason}</div>;
-  if (t.status === 'ERROR') return <div className="hint">Targets could not be worked out for this estimate.</div>;
-  const [selectedIndex, setSelectedIndex] = useState(0);
+export function Targets({
+  targets: t,
+  selectedIndex: selectedIndexProp,
+  onSelectedIndexChange,
+  allowSelection = true,
+}) {
+  const [internalSelectedIndex, setInternalSelectedIndex] = useState(0);
+
+  const controlled = selectedIndexProp != null;
+
+  const selectedIndex = controlled
+    ? selectedIndexProp
+    : internalSelectedIndex;
+
+  const setSelectedIndex = controlled
+    ? onSelectedIndexChange
+    : setInternalSelectedIndex;
 
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [t]);
+    if (!controlled) setInternalSelectedIndex(0);
+  }, [t, controlled]);
 
-  if (!t.options?.length) return <div className="hint">No target for these subjects.</div>;
+  if (!t) return null;
 
-  const selected = t.options[selectedIndex];
+  if (t.status === 'MAINTAIN') {
+    return (
+      <Notice tone="success">
+        Keeping the current results and attendance should be enough for the {t.target_label}.
+      </Notice>
+    );
+  }
+
+  if (t.status === 'NONE') {
+    return <div className="hint">No target: {t.reason}</div>;
+  }
+
+  if (t.status === 'ERROR') {
+    return (
+      <div className="hint">
+        Targets could not be worked out for this estimate.
+      </div>
+    );
+  }
+
+  if (!t.options?.length) {
+    return <div className="hint">No target for these subjects.</div>;
+  }
+
+  const selected = t.options[selectedIndex] ?? t.options[0];
+
   return (
     <div className="stack">
       <div className="row">
@@ -73,12 +109,17 @@ export function Targets({ targets: t }) {
           <div className="row wrap">
             {t.options.map((option, i) => (
               <button key={i} type="button" className={`btn ${selectedIndex === i ? '' : 'secondary'}`}
-                aria-pressed={selectedIndex === i} onClick={() => setSelectedIndex(i)}
+                aria-pressed={selectedIndex === i} disabled={!allowSelection} onClick={() => setSelectedIndex(i)}
               >
                 Option {i + 1}
               </button>
             ))}
           </div>
+          {!allowSelection && t.options.length > 1 && (
+            <div className="hint">
+              Alternative target options are available only for the most recent current assessment.
+            </div>
+          )}
         </div>
       )}
 
