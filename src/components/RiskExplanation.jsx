@@ -39,20 +39,41 @@ export const influenceItems = (factors) => factors.map((f) => ({
 }));
 
 /** The targets for the next checkpoint, as a short table. */
-export function Targets({ targets: t }) {
+export function Targets({
+  targets: t,
+  selectedIndex: selectedIndexProp,
+  onSelectedIndexChange,
+}) {
   if (!t) return null;
-  if (t.status === 'MAINTAIN') return <Notice tone="success">Keeping the current results and attendance should be enough for the {t.target_label}.</Notice>;
+  if (t.status === 'MAINTAIN') {
+    return (
+      <Notice tone="success">
+        Keeping the current results and attendance should be enough for the {t.target_label}.
+      </Notice>
+    );
+  }
   if (t.status === 'NONE') return <div className="hint">No target: {t.reason}</div>;
-  if (t.status === 'ERROR') return <div className="hint">Targets could not be worked out for this estimate.</div>;
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  if (t.status === 'ERROR') {
+    return <div className="hint">Targets could not be worked out for this estimate.</div>;
+  }
+
+  const [internalSelectedIndex, setInternalSelectedIndex] = useState(0);
+  const controlled = selectedIndexProp != null;
+  const selectedIndex = controlled ? selectedIndexProp : internalSelectedIndex;
+  const setSelectedIndex = controlled
+    ? onSelectedIndexChange
+    : setInternalSelectedIndex;
 
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [t]);
+    if (!controlled) setInternalSelectedIndex(0);
+  }, [t, controlled]);
 
-  if (!t.options?.length) return <div className="hint">No target for these subjects.</div>;
+  if (!t.options?.length) {
+    return <div className="hint">No target for these subjects.</div>;
+  }
 
-  const selected = t.options[selectedIndex];
+  const selected = t.options[selectedIndex] ?? t.options[0];
+
   return (
     <div className="stack">
       <div className="row">

@@ -1104,6 +1104,16 @@ type CheckpointResults {
   subjects: [ProfileSubjectResult!]!
 }
 
+type ProfileAssessment {
+  prediction: RiskSummary!
+  base_probability: Float
+  explained: Boolean!
+  factors: [RiskFactor!]!
+  targets: RiskTargets
+  results: CheckpointResults
+  interventions: [Intervention!]!
+}
+
 type StudentRiskProfile {
   student: ProfileStudent!
   academic_year: Int
@@ -1120,6 +1130,7 @@ type StudentRiskProfile {
   risk_trend: [RiskSummary!]!
   performance_trend: [CheckpointResults!]!
   interventions: [Intervention!]!
+  assessment_history: [ProfileAssessment!]!
 }
 
 type DashboardAtRisk {

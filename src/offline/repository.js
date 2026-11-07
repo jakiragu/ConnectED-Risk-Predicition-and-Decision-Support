@@ -120,9 +120,38 @@ export const repository = {
   /** A student's risk profile; its interventions also go into the device copy the intervention form works from. */
   async loadProfile(schoolId, studentId) {
     const out = await readThrough(`profile:${studentId}`, async () =>
-      (await gql(GET_STUDENT_RISK_PROFILE, { school_id: schoolId, student_id: studentId })).getStudentRiskProfile);
-    if (out.data && !out.fromDevice) await mergeInterventions(studentId, out.data.interventions);
-    return out;
+      (await gql(GET_STUDENT_RISK_PROFILE, {
+        school_id: schoolId,
+        student_id: studentId,
+      })).getStudentRiskProfile);
+
+    if (!out.data) return out;
+
+    if (!out.fromDevice) {
+      await mergeInterventions(studentId, out.data.interventions);
+
+      // Refresh the logged-in teacher's class assignments.
+      await repository.loadClasses(schoolId).catch(() => {});
+    }
+
+    // Find this student's class in the logged-in teacher's class list.
+    const classId = out.data.student?.class_id;
+    const klass = classId
+      ? await db().classes.get(classId)
+      : null;
+
+    return {
+      ...out,
+      data: {
+        ...out.data,
+        teaching: {
+          subjects: Array.isArray(klass?.my_subjects)
+            ? klass.my_subjects
+            : [],
+          isClassTeacher: klass?.is_class_teacher === true,
+        },
+      },
+    };
   },
 
   loadMethods: (schoolId, factor) =>

@@ -44,6 +44,13 @@ const subjectsIn = (row, scope) => (row?.subjects || [])
   .filter((s) => canSeeFactor(scope, s.subject))
   .map((s) => ({ subject: s.subject, score: s.score ?? null, grade: s.grade ?? null }));
 
+const resultsView = (row, scope) => row && ({
+  point: row.point,
+  label: CHECKPOINT_LABEL[row.point] ?? row.point,
+  average: scope.all ? row.checkpoint_average ?? null : null,
+  subjects: subjectsIn(row, scope),
+});
+
 /** The first option's changes the person may see, for cards and lists. */
 function bestChanges(prediction, scope) {
   const t = scopeTargets(targetsOf(prediction?.counterfactuals), scope);
@@ -57,40 +64,95 @@ export async function getStudentRiskProfile(actor, { school_id, student_id, acad
   const ctx = await studentContext(actor, school_id, student_id, academic_year ?? null);
   if (!ctx) throw notFound('Student not found');
   if (!ctx.scope) throw forbidden('You do not teach this student');
+
   const { scope } = ctx;
-  const klass = ctx.student.class_id ? await platform.klass(school_id, ctx.student.class_id) : null;
-  const year = await studentYear(school_id, student_id, ctx.academicYear, ctx.terms);
+  const klass = ctx.student.class_id
+    ? await platform.klass(school_id, ctx.student.class_id)
+    : null;
+
+  const year = await studentYear(
+    school_id,
+    student_id,
+    ctx.academicYear,
+    ctx.terms
+  );
+
   const { latest, current, last_published_point } = latestOf(year);
-  const previous = year.predictions.length > 1 ? year.predictions[year.predictions.length - 2] : null;
+  const previous = year.predictions.length > 1
+    ? year.predictions[year.predictions.length - 2]
+    : null;
+
   const e = latest ? explain(latest) : null;
   const lastResult = year.results[year.results.length - 1] ?? null;
+
+  // Results and interventions associated with each prediction checkpoint.
+  const resultsByPoint = new Map(year.results.map((r) => [r.point, r]));
+
+  const visible = await visibleInterventions(
+    school_id,
+    student_id,
+    scope,
+    year
+  );
+
+  // Each prediction gets its own explanation, targets and linked interventions.
+  const assessmentHistory = year.predictions.map((prediction) => {
+    const explanation = explain(prediction);
+
+    return {
+      prediction: summary(prediction),
+
+      base_probability: explanation?.base_probability ?? null,
+      explained: Boolean(explanation),
+
+      factors: explanation
+        ? scopeFactors(explanation.factors, scope)
+        : [],
+
+      targets: scopeTargets(
+        targetsOf(prediction.counterfactuals),
+        scope
+      ),
+
+      results: resultsView(
+        resultsByPoint.get(prediction.prediction_point),
+        scope
+      ),
+
+      interventions: visible.filter(
+        (i) => i.linked?.prediction_point === prediction.prediction_point
+      ),
+    };
+  });
 
   return {
     student: studentView(ctx.student, klass),
     academic_year: ctx.academicYear,
     scope: ctx.scopeView,
+
     current,
     last_published_point,
+
+    // Retain these existing fields for backward compatibility.
     latest: summary(latest),
     previous: summary(previous),
     base_probability: e?.base_probability ?? null,
     explained: Boolean(e),
     factors: e ? scopeFactors(e.factors, scope) : [],
-    targets: latest ? scopeTargets(targetsOf(latest.counterfactuals), scope) : null,
-    results: lastResult && {
-      point: lastResult.point,
-      label: CHECKPOINT_LABEL[lastResult.point] ?? lastResult.point,
-      average: scope.all ? lastResult.checkpoint_average ?? null : null,
-      subjects: subjectsIn(lastResult, scope),
-    },
+    targets: latest
+      ? scopeTargets(targetsOf(latest.counterfactuals), scope)
+      : null,
+
+    results: resultsView(lastResult, scope),
+
+    // New complete assessment history.
+    assessment_history: assessmentHistory,
+
     risk_trend: year.predictions.map(summary),
-    performance_trend: year.results.map((r) => ({
-      point: r.point,
-      label: CHECKPOINT_LABEL[r.point] ?? r.point,
-      average: scope.all ? r.checkpoint_average ?? null : null,
-      subjects: subjectsIn(r, scope),
-    })),
-    interventions: await visibleInterventions(school_id, student_id, scope, year),
+
+    performance_trend: year.results.map((r) => resultsView(r, scope)),
+
+    interventions: visible,
   };
 }
 

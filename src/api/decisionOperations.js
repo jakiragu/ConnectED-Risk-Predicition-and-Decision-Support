@@ -6,6 +6,21 @@ const STUDENT = `student_id admission_no first_name last_name class_id class_nam
 const CHANGE = `column label group kind from to gain basis peer_window peer_count peer_change`;
 const RESULTS = `point label average subjects { subject score grade }`;
 
+const FACTORS = `
+  group label effect direction share level missing_columns all_missing
+`;
+
+const TARGETS = `
+  status reason method target_point target_label evaluation_kind model_point
+  threshold pass_mark missing_score_policy baseline_score baseline_at_risk
+  dice_reason stats_available partial
+  caps { column label max_increase max_value source }
+  options {
+    method score at_risk
+    changes { ${CHANGE} }
+  }
+`;
+
 export const INTERVENTION_FIELDS = `
   intervention_id student_id class_id factor method frequency status started_on stopped_on expected_outcome notes
   linked { academic_year prediction_point run_id model_version probability at_risk threshold predicted_at targets_status
@@ -33,12 +48,16 @@ export const GET_STUDENT_RISK_PROFILE = `
       latest { ${SUMMARY} }
       previous { ${SUMMARY} }
       base_probability explained
-      factors { group label effect direction share level missing_columns all_missing }
-      targets {
-        status reason method target_point target_label evaluation_kind model_point threshold pass_mark
-        missing_score_policy baseline_score baseline_at_risk dice_reason stats_available partial
-        caps { column label max_increase max_value source }
-        options { method score at_risk changes { ${CHANGE} } }
+      factors { ${FACTORS} }
+      targets { ${TARGETS} }
+      assessment_history {
+        prediction { ${SUMMARY} }
+        base_probability
+        explained
+        factors { ${FACTORS} }
+        targets { ${TARGETS} }
+        results { ${RESULTS} }
+        interventions { ${INTERVENTION_FIELDS} }
       }
       results { ${RESULTS} }
       risk_trend { ${SUMMARY} }
