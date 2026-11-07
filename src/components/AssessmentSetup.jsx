@@ -28,7 +28,7 @@ const formOf = (config) => {
  * new terms. Existing terms keep their own setting; change those on the
  * Assessments page.
  */
-export default function AssessmentSetup({ schoolId }) {
+export default function AssessmentSetup({ schoolId, onDirtyChange }) {
   const [config, setConfig] = useState(null);
   const [form, setForm] = useState(null);
   const [error, setError] = useState(null);
@@ -44,6 +44,9 @@ export default function AssessmentSetup({ schoolId }) {
   useEffect(() => {
     load().catch((e) => setError(e.message));
   }, [load]);
+
+  const dirty = Boolean(form && config) && JSON.stringify(form) !== JSON.stringify(formOf(config));
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   if (!form) return error ? <div className="card error-card">{error}</div> : null;
 
@@ -91,11 +94,11 @@ export default function AssessmentSetup({ schoolId }) {
   return (
     <div className="card weights-card">
       <div className="weights-head">
-        <h2>Assessment setup</h2>
+        <h2>Exam names and defaults for new terms</h2>
         <Info label="About the assessment setup">
           Every term has a Mid-term and an End-term exam, and may have an Opener. Here you choose what the
           school calls them, whether new terms hold an Opener, and the checkpoint weights new terms start with.
-          Terms that already exist keep their own setting: change it on the Assessments page. CATs, practicals
+          Terms that already exist keep their own setting: change it under “This term” below. CATs, practicals
           and projects are not separate exams: add them to an exam as a component with a weight.
         </Info>
       </div>

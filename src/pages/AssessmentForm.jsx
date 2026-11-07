@@ -21,6 +21,7 @@ import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
 import { ulid } from '@gradebook/domain/ids';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field, Select } from '../components/Field.jsx';
+import { classLabel, isCurrent, sortClasses } from '../classLabels.js';
 
 const EMPTY = {
   title: '',
@@ -278,7 +279,8 @@ export default function AssessmentForm() {
               id="class"
               value={classId}
               onChange={setClassId}
-              options={classes.map((c) => ({ value: c.class_id, label: c.name }))}
+              // New papers only in current classes; an existing paper keeps showing its own class.
+              options={sortClasses(classes.filter((c) => isCurrent(c) || c.class_id === classId)).map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))}
               placeholder="Choose class"
               disabled={isEdit}
             />

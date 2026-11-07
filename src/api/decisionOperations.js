@@ -42,8 +42,8 @@ export const GET_RISK_DASHBOARD = `
 export const GET_STUDENT_RISK_PROFILE = `
   query GetStudentRiskProfile($school_id: ID!, $student_id: ID!, $academic_year: Int) {
     getStudentRiskProfile(school_id: $school_id, student_id: $student_id, academic_year: $academic_year) {
-      student { ${STUDENT} }
-      academic_year current last_published_point
+      student { ${STUDENT} status graduation_year }
+      academic_year available_years year_class_name current last_published_point
       scope { all factors }
       latest { ${SUMMARY} }
       previous { ${SUMMARY} }

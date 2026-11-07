@@ -260,6 +260,7 @@ export default function StudentProfile() {
   const navigate = useNavigate();
   const location = useLocation();
   const [view, setView] = useState({ data: null, fromDevice: false, savedAt: null });
+  const [year, setYear] = useState(null); // null: the current school year
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [laterAssessmentPoint, setLaterAssessmentPoint] = useState(null);
@@ -270,12 +271,12 @@ export default function StudentProfile() {
     let live = true;
     setLoading(true);
     setError(null);
-    repository.loadProfile(actor.schoolId, studentId)
+    repository.loadProfile(actor.schoolId, studentId, year)
       .then((v) => live && setView(v))
       .catch((e) => live && setError(e.message))
       .finally(() => live && setLoading(false));
     return () => { live = false; };
-  }, [actor.schoolId, studentId, online]);
+  }, [actor.schoolId, studentId, online, year]);
 
   const p = view.data;
   if (error) return <div className="stack"><Link to="/dashboard">Back</Link><div className="notice">{error}</div></div>;
@@ -391,6 +392,9 @@ export default function StudentProfile() {
   const subjects = [...new Set(p.performance_trend.flatMap((r) => r.subjects.map((s) => s.subject)))];
   const previousInterventions = p.previous ? p.interventions.filter((i) => i.linked?.prediction_point === p.previous.prediction_point) : [];
   const latest = p.latest;
+  const active = (p.student.status || 'ACTIVE') === 'ACTIVE';
+  const years = p.available_years || [];
+  const viewingPast = years.length > 0 && p.academic_year !== years[0];
 
   return (
     <div className="stack">
@@ -422,12 +426,14 @@ export default function StudentProfile() {
           )}
         </div>
       </div>
+      {!active && <div className="notice">This student has {p.student.status === 'GRADUATED' ? 'graduated' : 'left the school'}. Their record is read-only.</div>}
+      {active && viewingPast && <div className="notice">You are looking at {p.academic_year}, an earlier school year. Interventions are logged against the current year.</div>}
 
 
       {!p.scope.all && (
         <div className="hint">You see {p.scope.factors.join(' and ')}: the subject{p.scope.factors.length === 1 ? '' : 's'} you teach this student. The class teacher sees every subject and attendance.</div>
       )}
-      {!latest && <div className="notice">No risk prediction for this student this school year yet. Predictions are made when Mid-term and End-term results are published.</div>}
+      {!latest && <div className="notice">No risk prediction for this student in {p.academic_year ?? 'this school year'} yet. Predictions are made when Mid-term and End-term results are published.</div>}
       {latest && !p.current && (
         <div className="notice">
           Not current: results up to {CHECKPOINT_LABEL[p.last_published_point]} are published, but the latest prediction is from {latest.label}.

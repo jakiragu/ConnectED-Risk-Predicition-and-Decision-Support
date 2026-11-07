@@ -22,7 +22,9 @@
     "features:export": "node local/export-features.js",
     "history:backfill": "node local/backfill-history.js",
     "model:package": "python ml/package_logreg.py",
-    "model:publish": "node local/publish-model.js"
+    "model:publish": "node local/publish-model.js",
+    "angaza:add-staff": "node local/add-angaza-staff.js",
+    "angaza:backfill": "node local/backfill-school-registry.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.658.0",
@@ -38,6 +40,7 @@
     "graphql-yoga": "^5.7.0"
   },
   "devDependencies": {
-    "fake-indexeddb": "^6.0.0"
+    "fake-indexeddb": "^6.0.0",
+    "dynalite": "^3.2.2"
   }
 }

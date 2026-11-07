@@ -10,6 +10,11 @@ import { useLive } from '../offline/useLive.js';
 import { useSync } from '../offline/useSync.js';
 import { DangerButton, ActionIcon } from '../components/ui.jsx';
 import { LIST_RISK_PREDICTIONS } from '../api/riskOperations.js';
+import { classLabel, isCurrent, sortClasses } from '../classLabels.js';
+
+const statusText = (s) => (s.status === 'ACTIVE' ? 'Active'
+  : s.status === 'GRADUATED' ? `Graduated${s.graduation_year ? ` ${s.graduation_year}` : ''}`
+  : s.departure_kind === 'TEMPORARY' ? 'Temporarily deactivated' : s.left_year ? `Left ${s.left_year}` : 'Deactivated');
 
 const EMPTY = { first_name: '', last_name: '', admission_no: '' };
 const PREDICTION_POINTS = ['T1M', 'T1F', 'T2M', 'T2F', 'T3M'];
@@ -30,6 +35,7 @@ export default function Students() {
   const [transfer, setTransfer] = useState({});
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [departure, setDeparture] = useState(null);
 
   useEffect(() => {
     repository.loadClasses(actor.schoolId).catch(() => {});
@@ -104,21 +110,39 @@ export default function Students() {
     if (await run(CREATE_STUDENT, { class_id: classId, ...form }, `${form.first_name} ${form.last_name} added`)) setForm(EMPTY);
   }
 
-  const shown = students.filter((s) => showInactive || s.status === 'ACTIVE');
+  const shown = students.filter((s) => showInactive || (klass && !isCurrent(klass)) || s.status === 'ACTIVE');
   const inactive = students.filter((s) => s.status !== 'ACTIVE').length;
-  const destinations = classes.filter((c) => c.class_id !== classId && c.status === 'CURRENT');
+  const destinations = sortClasses(classes.filter((c) => c.class_id !== classId && isCurrent(c)));
+  const archived = klass && !isCurrent(klass);
 
   if (!online) return <div className="notice">Managing students needs a connection.</div>;
 
   return (
     <>
       <div className="page-head">
-        <Link to="/classes">Back</Link>
-        <h1>{klass?.name || 'Class'}: students</h1>
-        <span className="hint">{students.length - inactive} active{inactive ? `, ${inactive} deactivated` : ''}</span>
+        <h1>{klass ? classLabel(klass, classes) : 'Class'}</h1>
+        <span className="hint">{students.length - inactive} active{inactive ? `, ${inactive} not active` : ''}</span>
       </div>
+      <nav className="tabs" aria-label="Class pages">
+        <Link to={`/classes/${classId}`}>Overview</Link>
+        <Link to={`/classes/${classId}/students`} aria-current="page">{canManage ? 'Manage students' : 'Students'}</Link>
+        <Link to={`/assessments?class=${classId}`}>Assessments</Link>
+      </nav>
+      {archived && (
+        <div className="notice">
+          This class is archived{klass.year ? ` (${klass.year})` : ''}. Its students' results, report cards and risk history stay here, read-only.
+          {klass.promoted_to_class_id && ' Its students moved up when the school year was closed.'}
+        </div>
+      )}
       {error && <div className="card error-card">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
+      {departure && <form className="card stack" onSubmit={async (e) => { e.preventDefault(); const { student, ...details } = departure; if (await run(SET_STUDENT_STATUS, { student_id: student.student_id, status: 'INACTIVE', _version: student._version, ...details }, 'Student status recorded')) setDeparture(null); }}>
+        <h2>Deactivate {departure.student.first_name} {departure.student.last_name}</h2>
+        <Field label="Departure type"><Select value={departure.departure_kind} onChange={(departure_kind) => setDeparture({ ...departure, departure_kind })} options={[{ value: 'TEMPORARY', label: 'Temporarily deactivated' }, { value: 'LEFT', label: 'Permanently left the school' }]} /></Field>
+        <Field label="Reason"><input required maxLength={500} value={departure.deactivation_reason} onChange={(e) => setDeparture({ ...departure, deactivation_reason: e.target.value })} /></Field>
+        <Field label="Effective date"><input required type="date" value={departure.deactivation_date} onChange={(e) => setDeparture({ ...departure, deactivation_date: e.target.value })} /></Field>
+        <div className="weights-row"><button className="btn" type="submit">Confirm deactivation</button><button className="btn secondary" type="button" onClick={() => setDeparture(null)}>Cancel</button></div>
+      </form>}
       {!canManage && <div className="notice">Only the class teacher or an administrator can change this list.</div>}
 
       {canManage && klass?.status === 'CURRENT' && (
@@ -140,7 +164,7 @@ export default function Students() {
       )}
 
       <label className="choice-inline">
-        <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> Show deactivated students
+        <input type="checkbox" checked={showInactive || archived} disabled={archived} onChange={(e) => setShowInactive(e.target.checked)} /> Show graduated, left and deactivated students
       </label>
 
       <div className="table-wrap">
@@ -241,6 +265,17 @@ export default function Students() {
                             }
                           >
                             <ActionIcon name="restore" />
+                      )}
+                      {/* An admin can move a student who is active, or one who left from an archived class and came back. */}
+                      {isAdmin && (s.status === 'ACTIVE' || archived) && (
+                        <>
+                          <Select className="move-class-select" aria-label="Move to class" value={transfer[s.student_id] || ''}
+                            onChange={(v) => setTransfer({ ...transfer, [s.student_id]: v })}
+                            options={destinations.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} placeholder="Move to…" />
+                          <button type="button" className="btn link" disabled={!transfer[s.student_id]}
+                            onClick={() => window.confirm('Move this student? Marks already recorded stay with this class.')
+                              && run(TRANSFER_STUDENT, { student_id: s.student_id, to_class_id: transfer[s.student_id], _version: s._version }, 'Student moved')}>
+                            Move
                           </button>
                         )}
                         {isAdmin && s.status === 'ACTIVE' && (

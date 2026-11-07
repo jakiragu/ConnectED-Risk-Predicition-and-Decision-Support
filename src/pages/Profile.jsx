@@ -4,6 +4,7 @@ import { ME, LIST_MY_CLASSES, UPDATE_MY_PROFILE, } from '../api/operations.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { Field } from '../components/Field.jsx';
 import { useSync } from '../offline/useSync.js';
+import { classLabels } from '../classLabels.js';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -69,10 +70,7 @@ export default function Profile() {
     };
   }, [actor.schoolId, online]);
 
-  const classNames = useMemo(
-    () => new Map(classes.map((c) => [c.class_id, c.name])),
-    [classes]
-  );
+  const classNames = useMemo(() => classLabels(classes), [classes]);
 
   const assignments = useMemo(() => {
     if (!profile?.assignments) return [];

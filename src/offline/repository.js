@@ -61,9 +61,12 @@ export const repository = {
   loadClasses: (schoolId) =>
     quietly(async () => {
       const { listMyClasses } = await gql(LIST_MY_CLASSES, { school_id: schoolId });
-      await db().transaction('rw', db().classes, async () => {
+      const current = new Set(listMyClasses.filter((c) => (c.status || 'CURRENT') === 'CURRENT').map((c) => c.class_id));
+      await db().transaction('rw', db().classes, db().students, async () => {
         await db().classes.clear();
         await db().classes.bulkPut(listMyClasses);
+        // After a promotion, rosters cached for archived classes are out of date (their students moved on).
+        await db().students.filter((s) => !current.has(s.class_id)).delete();
       });
     }),
 

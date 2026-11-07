@@ -65,6 +65,9 @@ type Score {
 enum Role { Admin Teacher }
 enum PersonStatus { ACTIVE INACTIVE }
 enum ClassStatus { CURRENT PAST }
+# A student's status. GRADUATED is set only by a promotion (and cleared only by undoing it);
+# setStudentStatus still takes PersonStatus (ACTIVE | INACTIVE).
+enum StudentStatus { ACTIVE INACTIVE GRADUATED }
 
 type Student {
   student_id: ID!
@@ -72,8 +75,13 @@ type Student {
   first_name: String!
   last_name: String!
   admission_no: String!
-  class_id: ID
-  status: String
+  class_id: ID                    # a graduate stays on their final class
+  status: String                  # StudentStatus value
+  graduation_year: Int            # set by a promotion that graduated the student
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
+  left_year: Int                  # set by a promotion that recorded the student as leaving
   _version: Int
 }
 
@@ -86,6 +94,8 @@ type Class {
   year: Int
   status: String
   class_teacher_id: ID
+  promoted_from_class_id: ID      # a class a promotion created: the class it continues
+  promoted_to_class_id: ID        # a class a promotion archived: the class it continues as
   class_teacher_name: String      # listSchoolClasses only
   student_count: Int              # listSchoolClasses only
   my_subjects: [String!]          # listMyClasses: subjects this user may create papers and enter marks for
@@ -264,6 +274,265 @@ type GradeRule {
   checkpoint_weights_version: Int!          # pass to setCheckpointWeights; stale => Conflict
   checkpoint_weights_problems: [String!]!   # empty when the weights are valid
   checkpoint_weights_locked: Boolean!       # End of term results are published in this term
+  grading_version: Int!                     # pass to setTermGrading; stale => Conflict
+  grading_locked_reason: String             # why bands, pass mark and missing-mark rule can no longer change; null = they can
+  grading_updated_at: AWSDateTime
+  grading_updated_by_name: String
+}
+
+# ------------------------------------------------------------ grading (settings)
+# The school's default grading rules are copied into each new term; a term's
+# own rules can change until any of its results are published.
+type GradingPolicy {
+  school_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!   # EXCLUDE | ZERO
+  bands: [GradeBand!]!
+  is_default: Boolean!            # true: never saved, the built-in scale is shown
+  updated_at: AWSDateTime
+  updated_by_name: String
+  _version: Int!                  # 0 = never saved
+}
+
+# Only the lowest mark of each grade is entered; each band runs up to the next one.
+input GradeBandLowerInput {
+  grade: String!
+  min_score: Float!
+}
+
+input SaveGradingPolicyInput {
+  school_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!
+  bands: [GradeBandLowerInput!]!
+  _version: Int!
+}
+
+input SetTermGradingInput {
+  school_id: ID!
+  term_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!
+  bands: [GradeBandLowerInput!]!
+  _version: Int!                  # GradeRule.grading_version you were editing
+}
+
+type GradingPreview {
+  term_id: ID                     # the latest term with published End-term results; null = none yet
+  term_name: String
+  marks: [Float!]!                # every student's term result in it (no names)
+}
+
+# ------------------------------------------------- forms and streams (settings)
+type ClassSetup {
+  school_id: ID!
+  forms: [String!]!
+  progression_paths: [String!]
+  streams: [String!]!
+  is_default: Boolean!            # true: never saved; taken from existing classes and not enforced
+  updated_at: AWSDateTime
+  _version: Int!
+}
+
+input SaveClassSetupInput {
+  school_id: ID!
+  forms: [String!]!
+  progression_paths: [String!]
+  streams: [String!]!
+  _version: Int!
+}
+
+# --------------------------------------------------------------- class page
+enum ClassProfileScope { FULL SUBJECT }
+
+type CheckpointLabel {
+  checkpoint: Checkpoint!
+  label: String!
+}
+
+type ClassRules {
+  pass_mark: Float
+  missing_score_policy: String
+  bands: [GradeBand!]!
+  checkpoint_weights: CheckpointWeights
+  opener_enabled: Boolean!
+  labels: [CheckpointLabel!]!
+}
+
+type ClassSummary {
+  assessed: Int!
+  mean: Float
+  mean_grade: String
+  median: Float
+  mean_change: Float              # against the previous published exam
+  pass_mark: Float
+  pass_rate: Float                # 0..1
+  pass_rate_change: Float         # percentage points
+  school_mean: Float
+  attendance_rate: Float          # whole-class view only
+  incomplete: Int!                # students with a missing, absent or not-assessed paper
+}
+
+type DistributionBucket {
+  label: String!
+  min: Float!
+  max: Float!
+  count: Int!
+  previous_count: Int
+}
+
+type SubjectSummary {
+  subject: String!
+  count: Int!
+  mean: Float
+  median: Float
+  q1: Float
+  q3: Float
+  min: Float
+  max: Float
+  pass_rate: Float
+  change: Float
+  school_mean: Float
+  incomplete: Int!
+}
+
+type StudentMove {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  now: Float
+  before: Float
+  change: Float
+}
+
+type ClassMovement {
+  compared: Int!
+  risers: [StudentMove!]!
+  fallers: [StudentMove!]!
+}
+
+type ClassFlaggedStudent {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  probability: Float!
+  raised_by: [String!]!           # visible factors that raised the estimate
+  interventions: Int!             # ongoing interventions the viewer can see
+}
+
+type ClassRisk {
+  predicted: Int!
+  flagged: Int!
+  flagged_rate: Float
+  threshold: Float
+  model_version: String
+  students: [ClassFlaggedStudent!]!
+  without_intervention: Int!
+}
+
+type ClassStudentRow {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  result: Float
+  grade: String
+  change: Float
+  attendance: Float
+  probability: Float
+  at_risk: Boolean
+  interventions: Int!
+  incomplete: Boolean!
+}
+
+type ClassProfileData {
+  summary: ClassSummary!
+  distribution: [DistributionBucket!]!
+  subject_results: [SubjectSummary!]!
+  movement: ClassMovement!
+  risk: ClassRisk                 # null: no prediction point here, or no access
+  students: [ClassStudentRow!]!
+}
+
+type ClassTrendPoint {
+  label: String!                  # e.g. "T2 Midterm"
+  term_id: ID!
+  checkpoint: Checkpoint!
+  mean: Float                     # the class's exam average (the viewer's subjects only, for a subject teacher)
+  school_mean: Float
+}
+
+type ExamDistribution {
+  checkpoint: Checkpoint!
+  label: String!
+  counts: [Int!]!                 # students per range, lowest range first
+  students: Int!
+}
+
+type PerformanceDistribution {
+  ranges: [String!]!              # "0–9" ... "90–100"
+  series: [ExamDistribution!]!    # one per published exam in the term
+}
+
+type RiskDistributionSeries {
+  checkpoint: Checkpoint!
+  point: String!
+  label: String!
+  counts: [Int!]!                 # students per 10% of estimated risk
+  predicted: Int!
+  flagged: Int!
+}
+
+type RiskDistribution {
+  ranges: [String!]!
+  threshold: Float
+  series: [RiskDistributionSeries!]!
+}
+
+type ClassRiskFactor {
+  factor: String!
+  share: Float!                   # share of what moved the class's estimates
+}
+
+type InterventionMethodSummary {
+  method: String!
+  factor: String!
+  frequency: String
+  students: Int!
+}
+
+type ClassProfile {
+  class_id: ID!
+  class_name: String!
+  term_id: ID!
+  term_name: String!
+  academic_year: Int
+  checkpoint: Checkpoint!
+  checkpoint_label: String!
+  published: Boolean!
+  published_at: AWSDateTime
+  viewer_is_admin: Boolean!
+  viewer_is_class_teacher: Boolean!
+  my_subjects: [String!]!
+  form: String
+  stream: String
+  class_year: Int
+  class_teacher_name: String
+  trend: [ClassTrendPoint!]!
+  performance_distribution: PerformanceDistribution!
+  risk_distribution: RiskDistribution          # null: no access to risk
+  top_factors: [ClassRiskFactor!]!
+  intervention_methods: [InterventionMethodSummary!]!
+  scope: ClassProfileScope!
+  subjects: [String!]!            # SUBJECT scope: the subjects this view covers
+  student_count: Int!
+  previous_label: String          # what changes are measured against; null = nothing earlier
+  risk_point: String
+  school_classes: Int             # classes in the school average
+  rules: ClassRules!
+  profile: ClassProfileData       # null until these results are published
 }
 
 type ResultIssue {
@@ -847,6 +1116,9 @@ input TransferStudentInput {
 }
 
 input SetStudentStatusInput {
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
   school_id: ID!
   student_id: ID!
   status: PersonStatus!
@@ -1089,6 +1361,8 @@ type ProfileStudent {
   last_name: String!
   class_id: ID
   class_name: String
+  status: String               # StudentStatus value
+  graduation_year: Int
 }
 
 type ProfileSubjectResult {
@@ -1117,6 +1391,8 @@ type ProfileAssessment {
 type StudentRiskProfile {
   student: ProfileStudent!
   academic_year: Int
+  available_years: [Int!]!     # years with published results for this student, newest first
+  year_class_name: String      # the class the student was in during academic_year
   scope: RiskScope!
   current: Boolean!            # false: results were published later and no prediction followed yet
   last_published_point: String
@@ -1202,6 +1478,270 @@ type SchoolRiskOverview {
   interventions_logged: Int!
 }
 
+# ------------------------------------------------------------ year-end promotion
+# An operational extension: closes a school year by moving students into the
+# next year's classes. Administrators only.
+
+enum PromotionAction { PROMOTE REPEAT GRADUATE LEAVE }
+enum PromotionRunStatus { APPLYING APPLIED REVERTED }
+
+type PromotionClassRef {
+  key: String!                 # "<level>|<stream>": names a destination before it exists
+  class_id: ID                 # null: the promotion will create it
+  name: String!
+  grade: String!
+  stream: String!
+  year: Int!
+  level: Int!
+  exists: Boolean!
+}
+
+type PromotionStudentPlan {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  average: Float
+  pass_mark: Float!
+  result_problem: String
+  override_reason: String
+  default_action: PromotionAction
+  action: PromotionAction
+  to_key: String
+  to_class_id: ID
+  to_class_name: String
+  overridden: Boolean!
+}
+
+type PromotionClassPlan {
+  source_class_id: ID!
+  source_name: String!
+  grade: String!
+  stream: String!
+  level: Int
+  publication_status: String!
+  graduating: Boolean!
+  class_teacher_name: String
+  active_count: Int!
+  inactive_count: Int!         # deactivated students: they stay on the archived class
+  destination: PromotionClassRef          # null for the final level
+  repeat_destination: PromotionClassRef
+  students: [PromotionStudentPlan!]!
+}
+
+type PromotionBlocker {
+  code: String!                # NO_CLASSES | NO_TERM3 | UNPUBLISHED | UNKNOWN_LEVEL | NAME_TAKEN | INVALID_CHOICE
+  class_id: ID
+  message: String!
+}
+
+type PromotionSummary {
+  promote: Int!
+  repeat: Int!
+  graduate: Int!
+  leave: Int!
+  classes_created: Int!
+  classes_archived: Int!
+}
+
+type PromotionSkip {
+  student_id: ID!
+  name: String!
+  reason: String!
+}
+
+type PromotionDecision {
+  student_id: ID!
+  name: String!
+  automatic_action: PromotionAction
+  action: PromotionAction!
+  average: Float
+  pass_mark: Float
+  overridden: Boolean
+  override_reason: String
+  overridden_by: ID
+  from_class_id: ID!
+  to_class_id: ID
+}
+
+type PromotionTeacherPreview {
+  teacher_id: ID!
+  name: String!
+  excluded: Boolean!
+  description: String!
+  conflicts: [String!]!
+}
+
+type PromotionRun {
+  teacher_strategy: String!
+  decisions: [PromotionDecision!]!
+  run_id: ID!
+  from_year: Int!
+  to_year: Int!
+  status: PromotionRunStatus!
+  copy_teachers: Boolean!
+  summary: PromotionSummary!
+  skipped: [PromotionSkip!]!   # students changed by someone else after the plan was made
+  skipped_teachers: [String!]!
+  interventions_stopped: Int!
+  created_by_name: String
+  created_at: AWSDateTime
+  applied_at: AWSDateTime
+  reverted_at: AWSDateTime
+  can_revert: Boolean!
+  revert_blocked_reason: String
+}
+
+type PromotionPlan {
+  review_token: String!
+  teacher_strategy: String!
+  teacher_preview: [PromotionTeacherPreview!]!
+  teacher_warnings: [String!]!
+  from_year: Int!
+  to_year: Int!
+  levels: [String!]!                      # the school's numbered forms in promotion order
+  final_levels: [String!]!                # the forms that graduate (the last of each group, e.g. Form 4, Grade 12)
+  blockers: [PromotionBlocker!]!
+  summary: PromotionSummary!
+  choices: [PromotionClassRef!]!          # every next-year class a student may be sent to
+  classes: [PromotionClassPlan!]!
+  run: PromotionRun                       # set when this year is already promoted (or being promoted)
+}
+
+type PastStudent {
+  student_id: ID!
+  admission_no: String!
+  first_name: String!
+  last_name: String!
+  status: StudentStatus!
+  graduation_year: Int
+  departure_kind: String
+  deactivation_reason: String
+  deactivation_date: AWSDate
+  left_year: Int
+  class_id: ID
+  class_name: String           # their final class, with its year
+}
+
+input PromotionOverrideInput {
+  reason: String
+  student_id: ID!
+  action: PromotionAction!
+  to_key: String               # a PromotionClassRef key; default: same stream
+}
+
+input ApplyPromotionInput {
+  school_id: ID!
+  from_year: Int!
+  overrides: [PromotionOverrideInput!]
+  copy_teachers: Boolean
+  teacher_strategy: String
+  excluded_teachers: [ID!]
+  review_token: String!
+  idempotency_key: String!     # made by the client; sending the same request again returns the same run
+}
+
+input RevertPromotionInput {
+  school_id: ID!
+  run_id: ID!
+}
+
+# ---------------------------------------------------------------- Angaza console
+# Reached only with an Angaza account (the platform sign-in pool); platform-service
+# refuses school accounts, and school services refuse Angaza accounts. On AppSync
+# the platform pool is an additional Cognito authorisation mode; the services tell
+# the pools apart by the token's issuer (backend/library/platformAuth.js).
+
+enum SchoolStatus { ACTIVE SUSPENDED }
+enum AdminSignIn { SIGNED_IN WAITING DISABLED UNKNOWN }   # WAITING: has not used their temporary password yet
+
+type PlatformSchool {
+  school_id: ID!
+  name: String!
+  country: String!              # ISO 3166 alpha-2, one of backend/library/locations.js
+  country_name: String!
+  region: String!               # county, district, province or region, as the country calls it
+  region_label: String!         # "County", "District", ...
+  town: String                  # nearest town or area, optional
+  time_zone: String!            # IANA zone, from the country
+  status: SchoolStatus!
+  suspended_reason: String      # seen by Angaza staff only
+  suspended_at: AWSDateTime
+  suspended_by_name: String
+  reactivated_at: AWSDateTime
+  reactivated_by_name: String
+  created_at: AWSDateTime
+  created_by_name: String
+  updated_at: AWSDateTime
+  active_admin_count: Int
+  _version: Int!
+}
+
+type SchoolAdmin {
+  teacher_id: ID!
+  first_name: String!
+  last_name: String!
+  email: String!
+  status: PersonStatus!
+  sign_in: AdminSignIn!
+}
+
+type SchoolUsage {                 # totals only: no student records reach the console
+  classes: Int!                    # current classes
+  teachers: Int!                   # active staff accounts, administrators included
+  students: Int!                   # active students
+}
+
+type PlatformSchoolDetail {
+  school: PlatformSchool!
+  admins: [SchoolAdmin!]!
+  usage: SchoolUsage!
+}
+
+type SchoolAdminAccount {
+  admin: SchoolAdmin!
+  temporary_password: String       # shown once; the administrator chooses their own at first sign-in
+}
+
+input CreateSchoolInput {
+  name: String!
+  country: String!
+  region: String!
+  town: String
+}
+
+input UpdateSchoolInput {
+  school_id: ID!
+  name: String!
+  country: String!
+  region: String!
+  town: String
+  _version: Int!
+}
+
+input SuspendSchoolInput {
+  school_id: ID!
+  reason: String!
+  _version: Int!
+}
+
+input SchoolRefInput {
+  school_id: ID!
+  _version: Int!
+}
+
+input AddSchoolAdminInput {
+  school_id: ID!
+  first_name: String!
+  last_name: String!
+  email: String!
+}
+
+input ResetSchoolAdminPasswordInput {
+  school_id: ID!
+  teacher_id: ID!
+}
+
 type Query {
   getAssessment(school_id: ID!, assessment_id: ID!): Assessment
   getAssessmentConfig(school_id: ID!): AssessmentConfig!
@@ -1215,6 +1755,10 @@ type Query {
   listScoresByAssessment(school_id: ID!, assessment_id: ID!): Connection_Score!
   syncScores(school_id: ID!, class_id: ID!, lastSync: Float, limit: Int, nextToken: String): SyncPage_Score!
   getGradeRule(school_id: ID!, term_id: ID!): GradeRule
+  getGradingPolicy(school_id: ID!): GradingPolicy!
+  getClassSetup(school_id: ID!): ClassSetup!
+  getGradingPreview(school_id: ID!): GradingPreview!                          # Admin
+  getClassProfile(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): ClassProfile!
   listResultSets(school_id: ID!, class_id: ID!, term_id: ID!): [ResultSet!]!
   listCheckpointStatus(school_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ClassCheckpointStatus!]!
   getTermResults(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [TermResult!]!
@@ -1237,6 +1781,13 @@ type Query {
   listStudentInterventions(school_id: ID!, student_id: ID!): [Intervention!]!
   listInterventionMethods(school_id: ID!, factor: String): [InterventionMethod!]!
   getRiskModel(school_id: ID!): RiskModel!                                                                                # Admin
+  planPromotion(school_id: ID!, from_year: Int!, overrides: [PromotionOverrideInput!], teacher_strategy: String, excluded_teachers: [ID!]): PromotionPlan!   # Admin; changes nothing
+  getPromotionRun(school_id: ID!, run_id: ID!): PromotionRun!                                            # Admin
+  listPromotionRuns(school_id: ID!): [PromotionRun!]!                                                    # Admin
+  listPastStudents(school_id: ID!, year: Int): [PastStudent!]!                                           # Admin; graduates and leavers
+
+  listSchools: [PlatformSchool!]!                                             # Angaza staff
+  getSchool(school_id: ID!): PlatformSchoolDetail!                            # Angaza staff
 }
 
 type Mutation {
@@ -1250,7 +1801,10 @@ type Mutation {
   restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores a deleted assessment and marks
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
   resolveScoreConflict(input: ResolveScoreConflictInput!): Score
-  setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # any gradebook role
+  setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # Admin
+  saveGradingPolicy(input: SaveGradingPolicyInput!): GradingPolicy!         # Admin
+  saveClassSetup(input: SaveClassSetupInput!): ClassSetup!                  # Admin
+  setTermGrading(input: SetTermGradingInput!): GradeRule!                   # Admin
   calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin
   calculateSchoolResults(input: CalculateSchoolResultsInput!): [ClassOutcome!]!
   publishResults(input: PublishResultsInput!): ResultSet!                  # Admin; idempotent
@@ -1278,4 +1832,13 @@ type Mutation {
   runRiskPredictions(input: RunRiskPredictionsInput!): RiskRun!               # Admin; queues a fresh run
   saveIntervention(input: SaveInterventionInput!): Intervention!              # Admin | class teacher | subject teacher (own subjects)
   deleteIntervention(input: DeleteInterventionInput!): Intervention!
+  applyPromotion(input: ApplyPromotionInput!): PromotionRun!                  # Admin; resumable, idempotent
+  revertPromotion(input: RevertPromotionInput!): PromotionRun!                # Admin; until the new year has records
+
+  createSchool(input: CreateSchoolInput!): PlatformSchool!                    # Angaza staff
+  updateSchool(input: UpdateSchoolInput!): PlatformSchool!                    # Angaza staff
+  suspendSchool(input: SuspendSchoolInput!): PlatformSchool!                  # Angaza staff; blocks the school's users, keeps its records
+  reactivateSchool(input: SchoolRefInput!): PlatformSchool!                   # Angaza staff
+  addSchoolAdmin(input: AddSchoolAdminInput!): SchoolAdminAccount!            # Angaza staff; creates the sign-in account
+  resetSchoolAdminPassword(input: ResetSchoolAdminPasswordInput!): SchoolAdminAccount!   # Angaza staff; administrators only
 }
