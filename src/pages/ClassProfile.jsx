@@ -14,6 +14,7 @@ import { EmptyState, Notice, Offline } from '../components/ui.jsx';
 import { Select } from '../components/Field.jsx';
 import LineChart from '../components/LineChart.jsx';
 import { AreaChart, ChartCard, ScaleBar, SERIES_COLORS } from '../components/charts.jsx';
+import { classLabel, sortClasses } from '../classLabels.js';
 
 const CHECKPOINT_ORDER = ['OPENER', 'MIDTERM', 'ENDTERM'];
 const fmt = (x, dp = 1) => (x === null || x === undefined || !Number.isFinite(x) ? '—' : Number(x).toFixed(dp));
@@ -132,13 +133,17 @@ export default function ClassProfile() {
 
   const classes = useMemo(() => {
     const list = isAdmin ? schoolClasses : myClasses;
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    return sortClasses(list);
   }, [isAdmin, schoolClasses, myClasses]);
 
   // Default: the current term, at the latest exam with published results for this class.
   useEffect(() => {
     if (!online || !terms.length || (termId && checkpoint)) return;
-    const term = terms.find((t) => t.term_id === termId) ?? terms.find((t) => t.status === 'CURRENT') ?? terms[0];
+    // An archived class opens at the latest term of its own year, not today's term (it has no results then).
+    const own = thisClass?.year ? terms.filter((t) => Number(t.academic_year) === Number(thisClass.year)) : [];
+    const term = terms.find((t) => t.term_id === termId)
+      ?? (thisClass && thisClass.status !== 'CURRENT' && own[0])
+      ?? terms.find((t) => t.status === 'CURRENT') ?? terms[0];
     gql(LIST_RESULT_SETS, { school_id: actor.schoolId, class_id: classId, term_id: term.term_id })
       .then(({ listResultSets }) => {
         const published = (listResultSets || []).filter((s) => s.status === 'PUBLISHED').map((s) => s.checkpoint);
@@ -146,7 +151,7 @@ export default function ClassProfile() {
         setParams({ term: term.term_id, exam: checkpoint || latest }, { replace: true });
       })
       .catch(() => setParams({ term: term.term_id, exam: checkpoint || 'MIDTERM' }, { replace: true }));
-  }, [online, terms, termId, checkpoint, classId, actor.schoolId, setParams]);
+  }, [online, terms, termId, checkpoint, classId, actor.schoolId, setParams, thisClass]);
 
   useEffect(() => {
     if (!online || !termId || !checkpoint) return undefined;
@@ -216,7 +221,7 @@ export default function ClassProfile() {
         </div>
         {classes.length > 1 && (
           <Select aria-label="Choose a class" value={classId} onChange={(id) => navigate(`/classes/${id}?term=${termId}&exam=${checkpoint}`)}
-            options={classes.map((c) => ({ value: c.class_id, label: c.name }))} />
+            options={classes.map((c) => ({ value: c.class_id, label: classLabel(c, classes) }))} />
         )}
       </div>
 

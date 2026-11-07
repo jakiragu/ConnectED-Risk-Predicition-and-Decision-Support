@@ -15,6 +15,7 @@ export async function save(schoolId, setup, expectedVersion, actor) {
     entity: 'ClassSetup',
     school_id: schoolId,
     forms: setup.forms,
+    ...(setup.progression_paths ? { progression_paths: setup.progression_paths } : {}),
     streams: setup.streams,
     _version: expectedVersion + 1,
     updated_at: new Date().toISOString(),

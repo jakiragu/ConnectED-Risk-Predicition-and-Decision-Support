@@ -85,3 +85,20 @@ export async function resetPassword(username) {
 /** Local seeding only: a known, permanent password. */
 export const setPermanentPassword = (username, password) =>
   cognito.send(new AdminSetUserPasswordCommand({ UserPoolId: pool(), Username: username, Password: password, Permanent: true }));
+/**
+ * Whether someone has finished their first sign-in, for the Angaza console.
+ * SIGNED_IN: they chose their own password. WAITING: they have not used their
+ * temporary password yet. DISABLED: the account is switched off. UNKNOWN: the
+ * sign-in service did not answer; the console says so rather than guessing.
+ */
+export async function accountState(username) {
+  try {
+    const user = await cognito.send(new AdminGetUserCommand({ UserPoolId: pool(), Username: username }));
+    if (user.Enabled === false) return 'DISABLED';
+    if (user.UserStatus === 'FORCE_CHANGE_PASSWORD' || user.UserStatus === 'RESET_REQUIRED') return 'WAITING';
+    if (user.UserStatus === 'CONFIRMED') return 'SIGNED_IN';
+    return 'UNKNOWN';
+  } catch {
+    return 'UNKNOWN';
+  }
+}

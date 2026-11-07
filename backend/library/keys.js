@@ -63,6 +63,15 @@ export const sk = {
   scoreAudit: (assessmentId, studentId, ulid) =>
     `SCOREAUDIT#${assessmentId}#${studentId}#${ulid}`,
   idempotency: (key) => `IDEMPOTENCY#${key}`,
+  // Year-end promotion. The lock makes a school year promotable once (again only after an undo);
+  // the run records what was decided; one move item per student makes the run resumable and undoable.
+  // 'PROMOTION#' never matches 'PROMOTIONLOCK#' or 'PROMOTIONMOVE#' (the character after PROMOTION differs).
+  promotionLock: (fromYear) => `PROMOTIONLOCK#${fromYear}`,
+  promotionLockPrefix: () => 'PROMOTIONLOCK#',
+  promotionRun: (runId) => `PROMOTION#${runId}`,
+  promotionRunPrefix: () => 'PROMOTION#',
+  promotionMove: (runId, studentId) => `PROMOTIONMOVE#${runId}#${studentId}`,
+  promotionMovePrefix: (runId) => `PROMOTIONMOVE#${runId}#`,
 };
 
 export const gsi1 = {
@@ -85,4 +94,23 @@ export const gsi2 = {
 export const gsi3 = {
   pk: (schoolId, classId) => `SCHOOL#${schoolId}#CLASS#${classId}#SCORE`,
   sk: (lastChangedAt) => pad(lastChangedAt),
+};
+/*
+ * The Angaza console's records. Angaza staff work across schools, so their
+ * records cannot live in any one school's partition. This partition is an index
+ * of schools and a list of staff; a school's own data never moves here, and
+ * nothing here is readable through a school's operations.
+ */
+export const PLATFORM_PK = 'PLATFORM';
+
+export const platformSk = {
+  // One registration per school: what the console lists. Mirrors the school's own SCHOOL#PROFILE.
+  school: (schoolId) => `SCHOOL#${schoolId}`,
+  schoolPrefix: () => 'SCHOOL#',
+  // Claimed with the registration, so the same school cannot be added twice.
+  // 'SCHOOL#' never matches 'SCHOOLNAME#' (the character after SCHOOL differs).
+  schoolName: (key) => `SCHOOLNAME#${key}`,
+  staff: (sub) => `STAFF#${sub}`,
+  // Who did what to a school, newest last. Written with every change; read by no screen yet.
+  audit: (schoolId, id) => `AUDIT#${schoolId}#${id}`,
 };

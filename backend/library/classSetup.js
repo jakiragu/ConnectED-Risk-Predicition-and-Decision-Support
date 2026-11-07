@@ -36,7 +36,10 @@ export function normaliseList(values, what) {
 export function normaliseSetup(input) {
   const forms = normaliseList(input?.forms, 'form');
   const streams = normaliseList(input?.streams, 'stream');
-  return { setup: { forms: forms.values, streams: streams.values }, problems: [...forms.problems, ...streams.problems] };
+  const paths = input?.progression_paths;
+  const problems = [...forms.problems, ...streams.problems];
+  if (paths != null && (!Array.isArray(paths) || !paths.length || paths.some((p) => !['FORM', 'GRADE'].includes(p)))) problems.push('Choose Form 1–4, Grade 10–12, or both progression paths');
+  return { setup: { forms: forms.values, streams: streams.values, ...(paths != null ? { progression_paths: [...new Set(paths)] } : {}) }, problems };
 }
 
 /** Forms and streams already used by a school's classes: the starting lists before the school saves its own. */

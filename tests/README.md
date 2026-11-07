@@ -22,7 +22,7 @@ npm run aws:setup
 npm run db:seed           # RESET THE DATA before each fresh full run (see below)
 npm run model:publish -- ml/models/xgb-notebook-v2   # the scorer needs a published model
 npm run api               # in its own terminal; see the scorer note below
-npm run test:evidence     # unit + integration, recorded
+npm run test:evidence     # unit + store + integration, recorded
 npm run test:report       # builds docs/evidence/test-cases.md
 npm run test:env          # records the environment; add service versions by hand
 ```
@@ -88,3 +88,13 @@ TC-P02 removes `models/current.json` from the model bucket, waits for the scorer
 (`MODEL_POINTER_TTL_SECONDS`) to expire, and confirms the scorer really fails. It then publishes
 End of term, checks the gradebook is unaffected and the profile marks the earlier prediction as not
 current, and always restores the pointer.
+
+
+## Store tests (no Docker)
+
+`npm run test:store` runs `tests/store/*.test.js` against dynalite, an in-process
+DynamoDB started by the test itself, so it needs neither Docker nor the local API.
+They cover year-end promotion (TC-Y07 to TC-Y12): applying, resuming an interrupted
+run, undoing, and the web client's own GraphQL documents through the real schema.
+Dynalite has no transactions; the promotion code uses none (every write is a single
+conditional update), which is why these tests can run there.

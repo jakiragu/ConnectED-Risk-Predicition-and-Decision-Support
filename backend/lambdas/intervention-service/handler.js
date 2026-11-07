@@ -47,6 +47,13 @@ async function contextOrThrow(actor, schoolId, studentId) {
   return ctx;
 }
 
+/** Graduated students and students who left keep their interventions as a record; nothing new is logged. */
+function assertActiveStudent(ctx) {
+  if ((ctx.student.status || 'ACTIVE') !== 'ACTIVE') {
+    throw validation('This student has graduated or left the school, so their interventions can no longer be changed', 'student_id');
+  }
+}
+
 async function listStudentInterventions(actor, { school_id, student_id }) {
   const ctx = await contextOrThrow(actor, school_id, student_id);
   const year = await studentYear(school_id, student_id, ctx.academicYear, ctx.terms);
@@ -83,6 +90,7 @@ async function saveIntervention(actor, input) {
   const checked = validateIntervention(input);
   if (!checked.ok) throw validation(checked.reason, checked.field);
   const ctx = await contextOrThrow(actor, input.school_id, input.student_id);
+  assertActiveStudent(ctx);
   assertFactor(ctx, checked.value.factor);
   const year = await studentYear(input.school_id, input.student_id, ctx.academicYear, ctx.terms);
 
@@ -137,6 +145,7 @@ function replayedCreate(existing, value, actor, year) {
 
 async function deleteIntervention(actor, { school_id, student_id, intervention_id, _version }) {
   const ctx = await contextOrThrow(actor, school_id, student_id);
+  assertActiveStudent(ctx);
   const existing = await interventions.get(school_id, student_id, intervention_id);
   if (!existing) throw notFound('Intervention not found');
   assertFactor(ctx, existing.factor);

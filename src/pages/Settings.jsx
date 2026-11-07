@@ -43,7 +43,7 @@ function SchoolSection() {
         <dt>School ID</dt><dd><code>{actor.schoolId}</code></dd>
         <dt>Who can change settings</dt><dd>Administrators</dd>
       </dl>
-      <p className="hint">School details cannot be edited here yet.</p>
+      <p className="hint">Angaza keeps your school’s name and location. To change them, contact Angaza.</p>
     </div>
   );
 }
@@ -190,7 +190,16 @@ export default function Settings() {
         <section className="settings-body" aria-label={SECTIONS.find((s) => s.id === section)?.label}>
           {section === 'school' && <SchoolSection />}
           {section === 'calendar' && <Terms embedded />}
-          {section === 'classes' && <ClassSetupSettings schoolId={actor.schoolId} onDirtyChange={handlers.classes} />}
+          {section === 'classes' && (
+            <div className="stack">
+              <ClassSetupSettings schoolId={actor.schoolId} onDirtyChange={handlers.classes} />
+              <div className="card settings-card stack">
+                <h2>Student promotion and year rollover</h2>
+                <p className="hint">Review final results, promotion exceptions and next year's teacher assignments before closing the school year.</p>
+                <div><Link className="btn" to="/classes/promotion">Promote students</Link></div>
+              </div>
+            </div>
+          )}
           {section === 'exams' && <ExamsSection schoolId={actor.schoolId} online={online} onDirty={handlers.exams} />}
           {section === 'grading' && <GradingSettings schoolId={actor.schoolId} onDirtyChange={handlers.grading} />}
           {section === 'subjects' && <SubjectsSection />}

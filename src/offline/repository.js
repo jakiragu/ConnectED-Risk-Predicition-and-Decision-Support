@@ -61,9 +61,12 @@ export const repository = {
   loadClasses: (schoolId) =>
     quietly(async () => {
       const { listMyClasses } = await gql(LIST_MY_CLASSES, { school_id: schoolId });
-      await db().transaction('rw', db().classes, async () => {
+      const current = new Set(listMyClasses.filter((c) => (c.status || 'CURRENT') === 'CURRENT').map((c) => c.class_id));
+      await db().transaction('rw', db().classes, db().students, async () => {
         await db().classes.clear();
         await db().classes.bulkPut(listMyClasses);
+        // After a promotion, rosters cached for archived classes are out of date (their students moved on).
+        await db().students.filter((s) => !current.has(s.class_id)).delete();
       });
     }),
 
@@ -118,9 +121,10 @@ export const repository = {
       (await gql(GET_SCHOOL_RISK_OVERVIEW, { school_id: schoolId, academic_year: academicYear })).getSchoolRiskOverview),
 
   /** A student's risk profile; its interventions also go into the device copy the intervention form works from. */
-  async loadProfile(schoolId, studentId) {
-    const out = await readThrough(`profile:${studentId}`, async () =>
-      (await gql(GET_STUDENT_RISK_PROFILE, { school_id: schoolId, student_id: studentId })).getStudentRiskProfile);
+  /** year: null for the current school year, or an earlier year (before a promotion). Each year is kept separately. */
+  async loadProfile(schoolId, studentId, year = null) {
+    const out = await readThrough(year ? `profile:${studentId}:${year}` : `profile:${studentId}`, async () =>
+      (await gql(GET_STUDENT_RISK_PROFILE, { school_id: schoolId, student_id: studentId, academic_year: year })).getStudentRiskProfile);
     if (out.data && !out.fromDevice) await mergeInterventions(studentId, out.data.interventions);
     return out;
   },

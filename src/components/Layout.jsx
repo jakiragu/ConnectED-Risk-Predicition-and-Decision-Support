@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { db, dropFor } from '../offline/db.js';
@@ -7,6 +7,7 @@ import { getState, startSync } from '../offline/syncEngine.js';
 import SyncBar from './SyncBar.jsx';
 import GlobalSearch from './GlobalSearch.jsx';
 import { useSidebar, SIDEBAR } from '../hooks/useSidebar.js';
+import { SCHOOL_SUSPENDED_EVENT } from '../api/graphql.js';
 
 /**
  * Grouped by purpose rather than listed by feature. Every user: dashboard, classes, assessments, results.
@@ -56,6 +57,15 @@ function breadcrumbsFor(pathname) {
 
   if (path === '/classes') {
     return [home, { label: 'Classes' }];
+  }
+
+  // Before the /classes/<id> pattern below, which would also match these.
+  if (path === '/classes/promotion') {
+    return [home, { label: 'Classes', to: '/classes' }, { label: 'Close the school year' }];
+  }
+
+  if (path === '/students/past') {
+    return [home, { label: 'Classes', to: '/classes' }, { label: 'Past students' }];
   }
 
   const classStudents = path.match(/^\/classes\/([^/]+)\/students$/);
@@ -149,6 +159,15 @@ export default function Layout() {
   const activeSection = activeSectionFor(location.pathname);
 
   useEffect(() => startSync(actor), [actor.sub]);
+
+  // Angaza can suspend a school. Every request is then refused, so instead of an error on
+  // every page, one page explains the pause. Work on this device stays queued meanwhile.
+  const [suspended, setSuspended] = useState(false);
+  useEffect(() => {
+    const onSuspended = () => setSuspended(true);
+    window.addEventListener(SCHOOL_SUSPENDED_EVENT, onSuspended);
+    return () => window.removeEventListener(SCHOOL_SUSPENDED_EVENT, onSuspended);
+  }, []);
 
   // Sidebar: folding groups, hiding it, and dragging its edge to resize. Remembered on this device.
   const { width, setWidth, hidden, setHidden, collapsed, setGroupOpen } = useSidebar();
@@ -274,7 +293,21 @@ export default function Layout() {
             </ol>
           </nav>
 
-          <Outlet />
+          {suspended ? (
+            <section className="empty suspended-school" aria-labelledby="suspended-title">
+              <b id="suspended-title">ConnectED is paused for {schoolName || 'your school'}</b>
+              <p>
+                Angaza has paused your school’s access. Your marks, results and records are kept, and anything
+                entered on this device is waiting to be sent. Contact Angaza to restore access.
+              </p>
+              <div className="row">
+                <button type="button" className="btn" onClick={() => window.location.reload()}>Try again</button>
+                <a href="#log-out" className="btn secondary" onClick={logOut}>Log out</a>
+              </div>
+            </section>
+          ) : (
+            <Outlet />
+          )}
         </main>
       </div>
     </div>

@@ -750,6 +750,14 @@ async function getGradingPreview(actor, { school_id }) {
  *   risk_distribution        students per 10% of estimated risk at the term's prediction points
  *   top_factors, intervention_methods   for the panels at the top of the page
  */
+async function archivedRoster(schoolId, classId, exams) {
+  const onClass = await platform.listStudents(schoolId, classId, { includeInactive: true });
+  const known = new Set(onClass.map((s) => s.student_id));
+  const named = [...new Set(exams.flatMap((e) => e.classRows.map((r) => r.student_id)))].filter((id) => !known.has(id));
+  const moved = (await Promise.all(named.map((id) => platform.student(schoolId, id)))).filter(Boolean);
+  return [...onClass, ...moved].sort((a, b) => String(a.admission_no).localeCompare(String(b.admission_no), undefined, { numeric: true }));
+}
+
 async function getClassProfile(actor, args) {
   assertTenant(actor, args.school_id);
   const scope = scopeOf(args);
@@ -758,7 +766,7 @@ async function getClassProfile(actor, args) {
   if (!klass) throw notFound('Class not found');
   assertClassRead(actor, scope.classId);
 
-  const [term, terms, roster, setup, set] = await Promise.all([
+  const [term, terms, liveRoster, setup, set] = await Promise.all([
     platform.term(schoolId, scope.termId),
     platform.listTerms(schoolId),
     platform.roster(schoolId, scope.classId),
@@ -771,7 +779,6 @@ async function getClassProfile(actor, args) {
   const classTeacher = isClassTeacherOf(actor, scope.classId);
   const full = admin || classTeacher;
   const subjects = full ? null : subjectsITeach(actor, scope.classId);
-  const rosterIds = new Set(roster.map((s) => s.student_id));
   const rScope = riskScope({ isAdmin: admin, isClassTeacher: classTeacher, subjects: subjects ?? [] });
 
   // Published results of this class, and of the whole school, for every exam this school year.
@@ -793,6 +800,12 @@ async function getClassProfile(actor, args) {
       exams.push({ term: t, checkpoint: c, set: mine, classRows, schoolRows });
     }
   }
+  // A current class's roster is who is in it now. An archived class's students have moved up or
+  // graduated on it, so its roster is everyone its published results name, plus anyone still on it.
+  const roster = (klass.status || 'CURRENT') === 'CURRENT'
+    ? liveRoster
+    : await archivedRoster(schoolId, scope.classId, exams);
+  const rosterIds = new Set(roster.map((s) => s.student_id));
   const short = (t, c) => `T${t.term_number} ${labelOf(c, labels)}`;
   const trend = exams.map((e) => ({
     label: short(e.term, e.checkpoint),

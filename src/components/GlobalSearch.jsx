@@ -6,6 +6,7 @@ import { db } from '../offline/db.js';
 import { repository } from '../offline/repository.js';
 import { useLive } from '../offline/useLive.js';
 import { useTerms } from '../offline/useTerms.js';
+import { classLabel, classLabels, isCurrent } from '../classLabels.js';
 
 /**
  * The top bar's search: students, classes and assessments, as in the
@@ -51,7 +52,7 @@ export default function GlobalSearch() {
     }
   }
 
-  const className = useMemo(() => new Map(classes.map((c) => [c.class_id, c.name])), [classes]);
+  const className = useMemo(() => classLabels(classes), [classes]);
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2) return [];
@@ -66,7 +67,7 @@ export default function GlobalSearch() {
           to: `/students/${s.student_id}/risk`, extra: { label: 'Log intervention', to: `/students/${s.student_id}/interventions` },
         })),
       ...mine.filter((c) => has(c.name)).slice(0, LIMIT.class)
-        .map((c) => ({ kind: 'class', key: `c${c.class_id}`, title: c.name, meta: 'Class', to: `/classes/${c.class_id}/students` })),
+        .map((c) => ({ kind: 'class', key: `c${c.class_id}`, title: classLabel(c, classes), meta: isCurrent(c) ? 'Class' : 'Past class', to: `/classes/${c.class_id}/students` })),
       ...assessments
         .filter((a) => ids.has(a.class_id) && !a._deleted && has(a.title))
         .slice(0, LIMIT.assessment)

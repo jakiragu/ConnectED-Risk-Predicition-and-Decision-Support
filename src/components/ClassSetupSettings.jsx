@@ -5,6 +5,9 @@ import { LIST_SCHOOL_CLASSES } from '../api/operations.js';
 import { GET_CLASS_SETUP, SAVE_CLASS_SETUP } from '../api/settingsOperations.js';
 import { Notice } from './ui.jsx';
 
+const pathsFor = (setup) => setup.progression_paths ?? [...new Set(setup.forms.map((f) => /^grade /i.test(f) ? 'GRADE' : 'FORM'))];
+const fieldsFor = (setup) => ({ forms: setup.forms, streams: setup.streams, progression_paths: pathsFor(setup) });
+
 /** A list of names edited as removable chips, with a box to add more. */
 function ListEditor({ id, label, hint, values, onChange, placeholder }) {
   const [text, setText] = useState('');
@@ -55,14 +58,14 @@ export default function ClassSetupSettings({ schoolId, onDirtyChange }) {
       gql(LIST_SCHOOL_CLASSES, { school_id: schoolId }),
     ]);
     setSaved(getClassSetup);
-    setForm({ forms: getClassSetup.forms, streams: getClassSetup.streams });
+    setForm(fieldsFor(getClassSetup));
     setClasses(listSchoolClasses);
   }, [schoolId]);
 
   useEffect(() => { load().catch((e) => setError(e.message)); }, [load]);
 
-  const dirty = Boolean(form && saved) && (saved.is_default || JSON.stringify(form) !== JSON.stringify({ forms: saved.forms, streams: saved.streams }));
-  useEffect(() => { onDirtyChange?.(Boolean(form && saved) && JSON.stringify(form) !== JSON.stringify({ forms: saved.forms, streams: saved.streams })); }, [form, saved, onDirtyChange]);
+  const dirty = Boolean(form && saved) && (saved.is_default || JSON.stringify(form) !== JSON.stringify(fieldsFor(saved)));
+  useEffect(() => { onDirtyChange?.(Boolean(form && saved) && JSON.stringify(form) !== JSON.stringify(fieldsFor(saved))); }, [form, saved, onDirtyChange]);
   if (!form) return error ? <Notice tone="error">{error}</Notice> : <p className="hint">Loading…</p>;
 
   const { problems } = normaliseSetup(form);
@@ -77,7 +80,7 @@ export default function ClassSetupSettings({ schoolId, onDirtyChange }) {
     try {
       const { saveClassSetup } = await gql(SAVE_CLASS_SETUP, { input: { school_id: schoolId, ...form, _version: saved._version } });
       setSaved(saveClassSetup);
-      setForm({ forms: saveClassSetup.forms, streams: saveClassSetup.streams });
+      setForm(fieldsFor(saveClassSetup));
       setNotice('Forms and streams saved. New and edited classes now use these lists.');
     } catch (e) {
       setError(e.message);
@@ -101,10 +104,13 @@ export default function ClassSetupSettings({ schoolId, onDirtyChange }) {
       {error && <Notice tone="error">{error}</Notice>}
       {notice && <Notice tone="success">{notice}</Notice>}
       <div className="card settings-card two-col">
-        <ListEditor id="forms-add" label="Forms" hint="Year groups, for example Form 1 to Form 4."
+        <ListEditor id="forms-add" label="Forms" hint="Year groups, for example Form 1 to Form 4. Available class levels are independent of the progression paths below."
           values={form.forms} placeholder="Form 1" onChange={(forms) => setForm({ ...form, forms })} />
         <ListEditor id="streams-add" label="Streams" hint="The streams within each form, for example East and West."
           values={form.streams} placeholder="East" onChange={(streams) => setForm({ ...form, streams })} />
+      </div>
+      <div className="card settings-card stack"><h3>Academic progression paths</h3><p className="hint">Choose the curricula the school uses, including future levels. A passing student progresses one level at a time; only Form 4 or Grade 12 can graduate.</p>
+        {[['FORM', 'Form 1 → Form 2 → Form 3 → Form 4 → Graduate'], ['GRADE', 'Grade 10 → Grade 11 → Grade 12 → Graduate']].map(([key, label]) => <label key={key}><input type="checkbox" checked={form.progression_paths.includes(key)} onChange={(e) => setForm({ ...form, progression_paths: e.target.checked ? [...form.progression_paths, key] : form.progression_paths.filter((p) => p !== key) })} /> {label}</label>)}
       </div>
       {outside.length > 0 && (
         <div className="card settings-card">
@@ -120,7 +126,7 @@ export default function ClassSetupSettings({ schoolId, onDirtyChange }) {
           {!dirty && <div className="hint">No unsaved changes.</div>}
         </div>
         {dirty && !saved.is_default && (
-          <button type="button" className="btn secondary" disabled={saving} onClick={() => setForm({ forms: saved.forms, streams: saved.streams })}>Undo changes</button>
+          <button type="button" className="btn secondary" disabled={saving} onClick={() => setForm(fieldsFor(saved))}>Undo changes</button>
         )}
         <button type="button" className="btn" disabled={!dirty || problems.length > 0 || saving} onClick={save}>
           {saving ? 'Saving…' : 'Save forms and streams'}

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext.jsx';
 import Layout from './components/Layout.jsx';
@@ -20,6 +21,11 @@ import BulkInterventionForm from './pages/BulkInterventionForm.jsx';
 import SchoolRisk from './pages/SchoolRisk.jsx';
 import ClassProfile from './pages/ClassProfile.jsx';
 import Settings from './pages/Settings.jsx';
+import Promotion from './pages/Promotion.jsx';
+import PastStudents from './pages/PastStudents.jsx';
+
+// The Angaza console has its own sign-in and pages; school users never download it.
+const AngazaApp = lazy(() => import('./angaza/AngazaApp.jsx'));
 
 function RequireAuth({ children }) {
   const { actor } = useAuth();
@@ -37,6 +43,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
+      <Route path="/angaza/*" element={
+        <Suspense fallback={<main className="page"><p className="hint" role="status">Opening the Angaza console…</p></main>}>
+          <AngazaApp />
+        </Suspense>
+      } />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
@@ -46,6 +57,8 @@ export default function App() {
         <Route path="school-risk" element={<RequireAdmin><SchoolRisk /></RequireAdmin>} />
         <Route path="classes" element={<Classes />} />
         <Route path="classes/:classId" element={<ClassProfile />} />
+        <Route path="classes/promotion" element={<RequireAdmin><Promotion /></RequireAdmin>} />
+        <Route path="students/past" element={<RequireAdmin><PastStudents /></RequireAdmin>} />
         <Route path="assessments" element={<Assessments />} />
         <Route path="assessments/new" element={<AssessmentForm />} />
         <Route path="assessments/:assessmentId/edit" element={<AssessmentForm />} />
