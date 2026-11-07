@@ -72,10 +72,14 @@ export default function Students() {
   return (
     <>
       <div className="page-head">
-        <Link to="/classes">Back</Link>
-        <h1>{klass?.name || 'Class'}: students</h1>
+        <h1>{klass?.name || 'Class'}</h1>
         <span className="hint">{students.length - inactive} active{inactive ? `, ${inactive} deactivated` : ''}</span>
       </div>
+      <nav className="tabs" aria-label="Class pages">
+        <Link to={`/classes/${classId}`}>Overview</Link>
+        <Link to={`/classes/${classId}/students`} aria-current="page">{canManage ? 'Manage students' : 'Students'}</Link>
+        <Link to={`/assessments?class=${classId}`}>Assessments</Link>
+      </nav>
       {error && <div className="card error-card">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {!canManage && <div className="notice">Only the class teacher or an administrator can change this list.</div>}

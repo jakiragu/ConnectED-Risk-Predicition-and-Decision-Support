@@ -8,6 +8,7 @@ import { TABLE, pk, sk } from '../../library/keys.js';
 import * as attendance from '../../library/attendanceRepo.js';
 import * as calendar from '../../library/calendarRepo.js';
 import * as platform from '../../library/platformRepo.js';
+import * as grading from '../../library/gradingRepo.js';
 import * as assessmentConfig from '../../library/assessmentConfigRepo.js';
 import { defaultWeightsOf, openerDefault } from '../../library/assessmentConfig.js';
 
@@ -69,10 +70,12 @@ async function listTerms(actor, { school_id }) {
 }
 
 /**
- * A new term gets a grading rule copied from the latest one, so results can be
- * calculated in it. Whether it holds an Opener, and its starting checkpoint
- * weights, come from the school's assessment setup; the term can change both
- * on the Assessments page until results are published.
+ * A new term gets a grading rule so results can be calculated in it. Its bands,
+ * pass mark and missing-mark rule come from the latest earlier term, or, for a
+ * school's first term, from the school's default grading policy (Settings ->
+ * Grading). Whether it holds an Opener, and its starting checkpoint weights,
+ * come from the school's assessment setup. An administrator can change all of
+ * these in Settings until results in the term are published.
  */
 async function ensureGradeRule(schoolId, termId, actor) {
   if (await platform.gradeRule(schoolId, termId)) return;
@@ -83,7 +86,8 @@ async function ensureGradeRule(schoolId, termId, actor) {
     template = await platform.gradeRule(schoolId, t.term_id);
     if (template) break;
   }
-  const config = await assessmentConfig.get(schoolId);
+  const [config, policy] = await Promise.all([assessmentConfig.get(schoolId), template ? null : grading.getPolicy(schoolId)]);
+  const source = template ?? policy;
   const defaultWeights = defaultWeightsOf(config);
   const ts = new Date().toISOString();
   try {
@@ -96,10 +100,10 @@ async function ensureGradeRule(schoolId, termId, actor) {
         grade_rule_id: `gr_${termId}`,
         school_id: schoolId,
         term_id: termId,
-        pass_mark: template?.pass_mark ?? 50,
-        at_risk_threshold: template?.at_risk_threshold ?? 50,
-        missing_score_policy: template?.missing_score_policy ?? 'EXCLUDE',
-        bands: template?.bands ?? [],
+        pass_mark: source.pass_mark,
+        missing_score_policy: source.missing_score_policy,
+        bands: source.bands,
+        grading_version: 0,
         opener_enabled: openerDefault(config),
         ...(defaultWeights ? { checkpoint_weights: defaultWeights } : {}),
         checkpoint_weights_version: 0,

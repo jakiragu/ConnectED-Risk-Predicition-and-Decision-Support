@@ -10,6 +10,7 @@ import { Info, Notice, useToast } from '../components/ui.jsx';
 import { db } from '../offline/db.js';
 import { useLive } from '../offline/useLive.js';
 import { useCheckpointSetup } from '../offline/useCheckpointSetup.js';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges.js';
 
 // A cell holds a number, ABS (absent) or NA (not assessed); see score.js.
 const asText = (score) => cellText(score);
@@ -77,15 +78,11 @@ export default function ScoreEntry() {
     [roster, drafts, saved]
   );
 
-  useEffect(() => {
-    if (!changed.length) return undefined;
-    const warn = (e) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [changed.length]);
+  // Unsaved marks are protected from in-app navigation (Back, sidebar) as well as closing the tab.
+  useUnsavedChanges(
+    changed.length > 0,
+    `${changed.length} mark${changed.length === 1 ? ' is' : 's are'} not saved yet. Leave this page and lose ${changed.length === 1 ? 'it' : 'them'}?`
+  );
 
   function edit(studentId, value) {
     setDrafts((d) => ({ ...d, [studentId]: value }));

@@ -264,6 +264,263 @@ type GradeRule {
   checkpoint_weights_version: Int!          # pass to setCheckpointWeights; stale => Conflict
   checkpoint_weights_problems: [String!]!   # empty when the weights are valid
   checkpoint_weights_locked: Boolean!       # End of term results are published in this term
+  grading_version: Int!                     # pass to setTermGrading; stale => Conflict
+  grading_locked_reason: String             # why bands, pass mark and missing-mark rule can no longer change; null = they can
+  grading_updated_at: AWSDateTime
+  grading_updated_by_name: String
+}
+
+# ------------------------------------------------------------ grading (settings)
+# The school's default grading rules are copied into each new term; a term's
+# own rules can change until any of its results are published.
+type GradingPolicy {
+  school_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!   # EXCLUDE | ZERO
+  bands: [GradeBand!]!
+  is_default: Boolean!            # true: never saved, the built-in scale is shown
+  updated_at: AWSDateTime
+  updated_by_name: String
+  _version: Int!                  # 0 = never saved
+}
+
+# Only the lowest mark of each grade is entered; each band runs up to the next one.
+input GradeBandLowerInput {
+  grade: String!
+  min_score: Float!
+}
+
+input SaveGradingPolicyInput {
+  school_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!
+  bands: [GradeBandLowerInput!]!
+  _version: Int!
+}
+
+input SetTermGradingInput {
+  school_id: ID!
+  term_id: ID!
+  pass_mark: Float!
+  missing_score_policy: String!
+  bands: [GradeBandLowerInput!]!
+  _version: Int!                  # GradeRule.grading_version you were editing
+}
+
+type GradingPreview {
+  term_id: ID                     # the latest term with published End-term results; null = none yet
+  term_name: String
+  marks: [Float!]!                # every student's term result in it (no names)
+}
+
+# ------------------------------------------------- forms and streams (settings)
+type ClassSetup {
+  school_id: ID!
+  forms: [String!]!
+  streams: [String!]!
+  is_default: Boolean!            # true: never saved; taken from existing classes and not enforced
+  updated_at: AWSDateTime
+  _version: Int!
+}
+
+input SaveClassSetupInput {
+  school_id: ID!
+  forms: [String!]!
+  streams: [String!]!
+  _version: Int!
+}
+
+# --------------------------------------------------------------- class page
+enum ClassProfileScope { FULL SUBJECT }
+
+type CheckpointLabel {
+  checkpoint: Checkpoint!
+  label: String!
+}
+
+type ClassRules {
+  pass_mark: Float
+  missing_score_policy: String
+  bands: [GradeBand!]!
+  checkpoint_weights: CheckpointWeights
+  opener_enabled: Boolean!
+  labels: [CheckpointLabel!]!
+}
+
+type ClassSummary {
+  assessed: Int!
+  mean: Float
+  mean_grade: String
+  median: Float
+  mean_change: Float              # against the previous published exam
+  pass_mark: Float
+  pass_rate: Float                # 0..1
+  pass_rate_change: Float         # percentage points
+  school_mean: Float
+  attendance_rate: Float          # whole-class view only
+  incomplete: Int!                # students with a missing, absent or not-assessed paper
+}
+
+type DistributionBucket {
+  label: String!
+  min: Float!
+  max: Float!
+  count: Int!
+  previous_count: Int
+}
+
+type SubjectSummary {
+  subject: String!
+  count: Int!
+  mean: Float
+  median: Float
+  q1: Float
+  q3: Float
+  min: Float
+  max: Float
+  pass_rate: Float
+  change: Float
+  school_mean: Float
+  incomplete: Int!
+}
+
+type StudentMove {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  now: Float
+  before: Float
+  change: Float
+}
+
+type ClassMovement {
+  compared: Int!
+  risers: [StudentMove!]!
+  fallers: [StudentMove!]!
+}
+
+type ClassFlaggedStudent {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  probability: Float!
+  raised_by: [String!]!           # visible factors that raised the estimate
+  interventions: Int!             # ongoing interventions the viewer can see
+}
+
+type ClassRisk {
+  predicted: Int!
+  flagged: Int!
+  flagged_rate: Float
+  threshold: Float
+  model_version: String
+  students: [ClassFlaggedStudent!]!
+  without_intervention: Int!
+}
+
+type ClassStudentRow {
+  student_id: ID!
+  first_name: String!
+  last_name: String!
+  admission_no: String
+  result: Float
+  grade: String
+  change: Float
+  attendance: Float
+  probability: Float
+  at_risk: Boolean
+  interventions: Int!
+  incomplete: Boolean!
+}
+
+type ClassProfileData {
+  summary: ClassSummary!
+  distribution: [DistributionBucket!]!
+  subject_results: [SubjectSummary!]!
+  movement: ClassMovement!
+  risk: ClassRisk                 # null: no prediction point here, or no access
+  students: [ClassStudentRow!]!
+}
+
+type ClassTrendPoint {
+  label: String!                  # e.g. "T2 Midterm"
+  term_id: ID!
+  checkpoint: Checkpoint!
+  mean: Float                     # the class's exam average (the viewer's subjects only, for a subject teacher)
+  school_mean: Float
+}
+
+type ExamDistribution {
+  checkpoint: Checkpoint!
+  label: String!
+  counts: [Int!]!                 # students per range, lowest range first
+  students: Int!
+}
+
+type PerformanceDistribution {
+  ranges: [String!]!              # "0–9" ... "90–100"
+  series: [ExamDistribution!]!    # one per published exam in the term
+}
+
+type RiskDistributionSeries {
+  checkpoint: Checkpoint!
+  point: String!
+  label: String!
+  counts: [Int!]!                 # students per 10% of estimated risk
+  predicted: Int!
+  flagged: Int!
+}
+
+type RiskDistribution {
+  ranges: [String!]!
+  threshold: Float
+  series: [RiskDistributionSeries!]!
+}
+
+type ClassRiskFactor {
+  factor: String!
+  share: Float!                   # share of what moved the class's estimates
+}
+
+type InterventionMethodSummary {
+  method: String!
+  factor: String!
+  frequency: String
+  students: Int!
+}
+
+type ClassProfile {
+  class_id: ID!
+  class_name: String!
+  term_id: ID!
+  term_name: String!
+  academic_year: Int
+  checkpoint: Checkpoint!
+  checkpoint_label: String!
+  published: Boolean!
+  published_at: AWSDateTime
+  viewer_is_admin: Boolean!
+  viewer_is_class_teacher: Boolean!
+  my_subjects: [String!]!
+  form: String
+  stream: String
+  class_year: Int
+  class_teacher_name: String
+  trend: [ClassTrendPoint!]!
+  performance_distribution: PerformanceDistribution!
+  risk_distribution: RiskDistribution          # null: no access to risk
+  top_factors: [ClassRiskFactor!]!
+  intervention_methods: [InterventionMethodSummary!]!
+  scope: ClassProfileScope!
+  subjects: [String!]!            # SUBJECT scope: the subjects this view covers
+  student_count: Int!
+  previous_label: String          # what changes are measured against; null = nothing earlier
+  risk_point: String
+  school_classes: Int             # classes in the school average
+  rules: ClassRules!
+  profile: ClassProfileData       # null until these results are published
 }
 
 type ResultIssue {
@@ -1204,6 +1461,10 @@ type Query {
   listScoresByAssessment(school_id: ID!, assessment_id: ID!): Connection_Score!
   syncScores(school_id: ID!, class_id: ID!, lastSync: Float, limit: Int, nextToken: String): SyncPage_Score!
   getGradeRule(school_id: ID!, term_id: ID!): GradeRule
+  getGradingPolicy(school_id: ID!): GradingPolicy!
+  getClassSetup(school_id: ID!): ClassSetup!
+  getGradingPreview(school_id: ID!): GradingPreview!                          # Admin
+  getClassProfile(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): ClassProfile!
   listResultSets(school_id: ID!, class_id: ID!, term_id: ID!): [ResultSet!]!
   listCheckpointStatus(school_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [ClassCheckpointStatus!]!
   getTermResults(school_id: ID!, class_id: ID!, term_id: ID!, checkpoint: Checkpoint!): [TermResult!]!
@@ -1239,7 +1500,10 @@ type Mutation {
   restoreAssessment(school_id: ID!, assessment_id: ID!): Assessment   # admin restores a deleted assessment and marks
   submitScores(input: SubmitScoresInput!): SubmitScoresResult!
   resolveScoreConflict(input: ResolveScoreConflictInput!): Score
-  setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # any gradebook role
+  setCheckpointWeights(input: SetCheckpointWeightsInput!): GradeRule!      # Admin
+  saveGradingPolicy(input: SaveGradingPolicyInput!): GradingPolicy!         # Admin
+  saveClassSetup(input: SaveClassSetupInput!): ClassSetup!                  # Admin
+  setTermGrading(input: SetTermGradingInput!): GradeRule!                   # Admin
   calculateTermResults(input: CalculateTermResultsInput!): ResultSet!      # Admin
   calculateSchoolResults(input: CalculateSchoolResultsInput!): [ClassOutcome!]!
   publishResults(input: PublishResultsInput!): ResultSet!                  # Admin; idempotent

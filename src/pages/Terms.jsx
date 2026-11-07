@@ -94,7 +94,7 @@ function TermEditor({ term, siblings, onSave, onCancel, busy }) {
   );
 }
 
-export default function Terms() {
+export default function Terms({ embedded = false } = {}) {
   const { actor } = useAuth();
   const { online } = useSync();
   const [terms, setTerms] = useState([]);
@@ -154,7 +154,7 @@ export default function Terms() {
   return (
     <>
       <div className="page-head">
-        <h1>Terms</h1>
+        {embedded ? <h2 className="grow">Terms and dates</h2> : <h1>Terms</h1>}
         {!editing && <button type="button" className="btn" onClick={() => setEditing(blankTerm(nextYear))}>Add a term</button>}
       </div>
       {error && <div className="card error-card">{error}</div>}
@@ -162,7 +162,7 @@ export default function Terms() {
 
       {editing && <TermEditor term={editing} siblings={terms} busy={busy} onSave={save} onCancel={() => setEditing(null)} />}
 
-      {!editing && <AssessmentSetup schoolId={actor.schoolId} />}
+      {!editing && !embedded && <AssessmentSetup schoolId={actor.schoolId} />}
 
       {years.map((year) => (
         <div key={year} className="stack">

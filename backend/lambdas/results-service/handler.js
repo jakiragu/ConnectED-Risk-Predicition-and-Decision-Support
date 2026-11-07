@@ -5,7 +5,10 @@ import {
   assertCanPublish,
   assertGradebookRole,
   canReviewResults,
+  assertAdmin,
   isAdmin,
+  isClassTeacherOf,
+  subjectsITeach,
   readableClassIds,
   visibleSubjects,
 } from '../../library/authz.js';
@@ -15,7 +18,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, s3 } from '../../library/client.js';
 import { TABLE, pk, sk } from '../../library/keys.js';
-import { validation, notFound, locked, conflict, forbidden } from '../../library/errors.js';
+import { validation, notFound, locked, conflict } from '../../library/errors.js';
 import { ulid } from '../../library/ids.js';
 import {
   calculateCheckpoint,
@@ -38,6 +41,17 @@ import * as assessments from '../../library/assessmentRepo.js';
 import * as scores from '../../library/scoreRepo.js';
 import * as platform from '../../library/platformRepo.js';
 import * as history from '../../library/historyRepo.js';
+import * as gradingStore from '../../library/gradingRepo.js';
+import * as riskStore from '../../library/riskRepo.js';
+import * as interventionStore from '../../library/interventionRepo.js';
+import * as attendanceStore from '../../library/attendanceRepo.js';
+import { normaliseGrading } from '../../library/grading.js';
+import {
+  buildClassProfile, examMean, examValue, rangeCounts, riskSeries, topFactors, interventionMethods, RANGES,
+} from '../../library/classProfile.js';
+import { riskScope, checkpointPoint } from '../../library/decisionSupport.js';
+import { attendancePeriods } from '../../library/calendar.js';
+import { periodSummary } from '../../library/attendance.js';
 
 export async function handler(event) {
   const actor = await resolveActor(event);
@@ -65,6 +79,16 @@ export async function handler(event) {
       return getGradeRule(actor, args);
     case 'setCheckpointWeights':
       return setCheckpointWeights(actor, input);
+    case 'getGradingPolicy':
+      return getGradingPolicy(actor, args);
+    case 'saveGradingPolicy':
+      return saveGradingPolicy(actor, input);
+    case 'setTermGrading':
+      return setTermGrading(actor, input);
+    case 'getGradingPreview':
+      return getGradingPreview(actor, args);
+    case 'getClassProfile':
+      return getClassProfile(actor, args);
     case 'listReportCards':
       return listReportCards(actor, args);
     case 'requestReportCardDownload':
@@ -81,6 +105,8 @@ const MARKS_MOVED = 'Marks or papers changed after these results were calculated
 const STALE_PUBLISHED = 'These results were published from a different calculation than the one you reviewed.';
 const WEIGHTS_MOVED = 'Checkpoint weights changed after these results were calculated. Recalculate and review again.';
 const WEIGHTS_LOCKED = 'End of term results are published for this term, so checkpoint weights can no longer change.';
+const GRADING_MOVED = 'The grading rules for this term changed after these results were calculated. Recalculate and review again.';
+const GRADING_LOCKED = 'Results are already published this term, so its grading rules are fixed. Changes to the school default apply to later terms.';
 const SETUP_MOVED = 'Whether this term holds an Opener changed after these results were calculated. Recalculate and review again.';
 const notYet = (checkpoint, openerEnabled, labels) =>
   `${labelOf(previousOf(checkpoint, openerEnabled), labels)} results must be published before ${labelOf(checkpoint, labels)} results`;
@@ -209,7 +235,11 @@ async function calculateTermResults(actor, input) {
   const prior = previous ? await publishedRows(schoolId, scope, previous) : null;
   const previousRows = {};
   // The setup this result is calculated under, kept with it: publication checks it and report cards print it.
-  const extra = { basis_opener_enabled: openerEnabled, basis_labels: labels };
+  const extra = {
+    basis_opener_enabled: openerEnabled,
+    basis_labels: labels,
+    basis_grading_version: gradeRule?.grading_version ?? 0,
+  };
   if (scope.checkpoint === CHECKPOINT.ENDTERM) {
     const opener = openerEnabled ? await publishedRows(schoolId, scope, CHECKPOINT.OPENER) : null;
     if (opener) previousRows.OPENER = opener.rows;
@@ -325,6 +355,7 @@ async function publishResults(actor, input) {
     throw validation(`Cannot publish: ${first?.message || 'the calculation has blocking problems'}`, 'checkpoint');
   }
   if ((set.basis_opener_enabled ?? true) !== openerEnabled) throw conflict(SETUP_MOVED);
+  if ((rule?.grading_version ?? 0) !== (set.basis_grading_version ?? 0)) throw conflict(GRADING_MOVED);
   const previous = previousOf(scope.checkpoint, openerEnabled);
   if (previous && (await results.getSet(schoolId, { ...scope, checkpoint: previous }))?.status !== results.STATUS.PUBLISHED) {
     throw validation(notYet(scope.checkpoint, openerEnabled, labels), 'checkpoint');
@@ -478,24 +509,28 @@ async function getGradeRule(actor, { school_id, term_id }) {
     checkpoint_weights_version: rule.checkpoint_weights_version ?? 0,
     checkpoint_weights_problems: checkpointWeightProblems(rule.checkpoint_weights, { openerEnabled, labels }),
     checkpoint_weights_locked: await finalPublishedInTerm(school_id, term_id),
+    grading_version: rule.grading_version ?? 0,
+    grading_locked_reason: await gradingLocked(school_id, term_id),
+    grading_updated_at: rule.grading_updated_at ?? null,
+    grading_updated_by_name: await teacherName(school_id, rule.grading_updated_by),
   };
 }
 
 /**
  * Sets the term's checkpoint weights and, optionally, whether it holds an
- * Opener. Any gradebook role may set weights; only an administrator may add or
- * remove the Opener, and not once results that depend on it are published.
+ * Opener. Weights apply to every class in the term, so only an administrator
+ * may set them (Settings -> Exams and weights); the Opener cannot be added or
+ * removed once results that depend on it are published.
  */
 async function setCheckpointWeights(actor, input) {
   assertTenant(actor, input.school_id);
-  assertGradebookRole(actor);
+  assertAdmin(actor);
   await requireTerm(input.school_id, input.term_id);
   const { rule, openerEnabled: current, labels } = await termSetup(input.school_id, input.term_id);
   if (!rule) throw notFound('No grading rule is set for this term');
 
   const openerEnabled = typeof input.opener_enabled === 'boolean' ? input.opener_enabled : current;
   if (openerEnabled !== current) {
-    if (!isAdmin(actor)) throw forbidden('Only an administrator can change whether this term holds an Opener');
     const blocked = await openerChangeBlocked(input.school_id, input.term_id, openerEnabled, labels);
     if (blocked) throw locked(blocked);
   }
@@ -608,4 +643,268 @@ async function requestReportCardDownload(actor, input) {
   }));
   log({ op: input.inline ? 'report-card-view' : 'report-card-download', ...scope, student_id: input.student_id, by: actor.sub });
   return { url, file_name: fileName, expires_at: new Date(at.getTime() + DOWNLOAD_SECONDS * 1000).toISOString() };
+}
+// ------------------------------------------------------------------ grading
+
+async function teacherName(schoolId, sub) {
+  if (!sub) return null;
+  const t = await platform.teacher(schoolId, sub).catch(() => null);
+  return t ? [t.first_name, t.last_name].filter(Boolean).join(' ') || null : null;
+}
+
+/** Why the term's grading rules can no longer change, or null. Any published result fixes them. */
+async function gradingLocked(schoolId, termId) {
+  const sets = await results.listSetsForTerm(schoolId, termId);
+  return sets.some((s) => s.status === results.STATUS.PUBLISHED) ? GRADING_LOCKED : null;
+}
+
+async function policyView(schoolId, policy) {
+  return {
+    school_id: schoolId,
+    pass_mark: policy.pass_mark,
+    missing_score_policy: policy.missing_score_policy,
+    bands: policy.bands,
+    is_default: Boolean(policy.is_default),
+    updated_at: policy.updated_at ?? null,
+    updated_by_name: await teacherName(schoolId, policy.updated_by),
+    _version: policy._version ?? 0,
+  };
+}
+
+/** The school's default grading rules. Readable by every gradebook role; they explain how results are worked out. */
+async function getGradingPolicy(actor, { school_id }) {
+  assertTenant(actor, school_id);
+  assertGradebookRole(actor);
+  return policyView(school_id, await gradingStore.getPolicy(school_id));
+}
+
+async function saveGradingPolicy(actor, input) {
+  assertTenant(actor, input.school_id);
+  assertAdmin(actor);
+  const { rules, problems } = normaliseGrading(input);
+  if (problems.length) throw validation(problems[0], 'grading');
+  try {
+    const saved = await gradingStore.savePolicy(input.school_id, rules, input._version ?? 0, actor);
+    log({ op: 'saveGradingPolicy', version: saved._version });
+    return policyView(input.school_id, saved);
+  } catch (e) {
+    if (e.name !== 'ConditionalCheckFailedException') throw e;
+    throw conflict('Someone else changed the default grading rules. Reload and try again.');
+  }
+}
+
+/** Changes one term's bands, pass mark and missing-mark rule, until any of its results are published. */
+async function setTermGrading(actor, input) {
+  assertTenant(actor, input.school_id);
+  assertAdmin(actor);
+  await requireTerm(input.school_id, input.term_id);
+  const rule = await platform.gradeRule(input.school_id, input.term_id);
+  if (!rule) throw notFound('No grading rule is set for this term');
+  const blocked = await gradingLocked(input.school_id, input.term_id);
+  if (blocked) throw locked(blocked);
+  const { rules, problems } = normaliseGrading(input);
+  if (problems.length) throw validation(problems[0], 'grading');
+  try {
+    await gradingStore.setTermGrading(input.school_id, input.term_id, rules, input._version ?? 0, actor);
+  } catch (e) {
+    if (e.name !== 'ConditionalCheckFailedException') throw e;
+    throw conflict('Someone else changed this term’s grading rules. Reload and try again.');
+  }
+  log({ op: 'setTermGrading', term_id: input.term_id });
+  return getGradeRule(actor, { school_id: input.school_id, term_id: input.term_id });
+}
+
+/**
+ * Marks to preview a grading change against: every student's result from the
+ * most recent published exam, preferring a term's End-term results (the graded
+ * term result). Numbers only, no names.
+ */
+async function getGradingPreview(actor, { school_id }) {
+  assertTenant(actor, school_id);
+  assertAdmin(actor);
+  const [terms, config] = await Promise.all([platform.listTerms(school_id), assessmentConfig.get(school_id)]);
+  const labels = labelsOf(config);
+  const ordered = [...terms].sort((a, b) => (b.academic_year - a.academic_year) || (b.term_number - a.term_number));
+  for (const t of ordered) {
+    const published = (await results.listSetsForTerm(school_id, t.term_id)).filter((s) => s.status === results.STATUS.PUBLISHED);
+    const checkpoint = [CHECKPOINT.ENDTERM, CHECKPOINT.MIDTERM, CHECKPOINT.OPENER].find((c) => published.some((s) => s.checkpoint === c));
+    if (!checkpoint) continue;
+    const sets = published.filter((s) => s.checkpoint === checkpoint);
+    const rows = (await Promise.all(sets.map((set) => results.listRows(school_id, set)))).flat();
+    const value = (r) => (checkpoint === CHECKPOINT.ENDTERM ? r.term_average : r.checkpoint_average);
+    return { term_id: t.term_id, term_name: `${t.name} ${labelOf(checkpoint, labels)}`, marks: rows.map(value).filter((v) => Number.isFinite(v)) };
+  }
+  return { term_id: null, term_name: null, marks: [] };
+}
+
+// -------------------------------------------------------------- class page
+
+/**
+ * Everything the class page shows, worked out on the server so the browser
+ * receives only what the caller may see: administrators and the class teacher
+ * get the whole class, a subject teacher only their subjects.
+ *
+ *   profile                  the chosen exam (summary, subjects, movement, risk, students); null until published
+ *   trend                    the class average at every published exam this school year, with the school's
+ *   performance_distribution students per 10-mark range at each published exam of the chosen term
+ *   risk_distribution        students per 10% of estimated risk at the term's prediction points
+ *   top_factors, intervention_methods   for the panels at the top of the page
+ */
+async function getClassProfile(actor, args) {
+  assertTenant(actor, args.school_id);
+  const scope = scopeOf(args);
+  const schoolId = args.school_id;
+  const klass = await platform.klass(schoolId, scope.classId);
+  if (!klass) throw notFound('Class not found');
+  assertClassRead(actor, scope.classId);
+
+  const [term, terms, roster, setup, set] = await Promise.all([
+    platform.term(schoolId, scope.termId),
+    platform.listTerms(schoolId),
+    platform.roster(schoolId, scope.classId),
+    termSetup(schoolId, scope.termId),
+    results.getSet(schoolId, scope),
+  ]);
+  if (!term) throw notFound('Term not found');
+  const { rule, labels } = setup;
+  const admin = isAdmin(actor);
+  const classTeacher = isClassTeacherOf(actor, scope.classId);
+  const full = admin || classTeacher;
+  const subjects = full ? null : subjectsITeach(actor, scope.classId);
+  const rosterIds = new Set(roster.map((s) => s.student_id));
+  const rScope = riskScope({ isAdmin: admin, isClassTeacher: classTeacher, subjects: subjects ?? [] });
+
+  // Published results of this class, and of the whole school, for every exam this school year.
+  const year = terms
+    .filter((t) => Number(t.academic_year) === Number(term.academic_year))
+    .sort((a, b) => a.term_number - b.term_number);
+  const setsByTerm = new Map(await Promise.all(year.map(async (t) => [t.term_id, (await results.listSetsForTerm(schoolId, t.term_id))
+    .filter((x) => x.status === results.STATUS.PUBLISHED)])));
+  const exams = [];
+  for (const t of year) {
+    for (const c of CHECKPOINTS) {
+      const published = setsByTerm.get(t.term_id).filter((x) => x.checkpoint === c);
+      const mine = published.find((x) => x.class_id === scope.classId);
+      if (!mine) continue;
+      const [classRows, schoolRows] = await Promise.all([
+        results.listRows(schoolId, mine),
+        Promise.all(published.map((x) => results.listRows(schoolId, x))).then((r) => r.flat()),
+      ]);
+      exams.push({ term: t, checkpoint: c, set: mine, classRows, schoolRows });
+    }
+  }
+  const short = (t, c) => `T${t.term_number} ${labelOf(c, labels)}`;
+  const trend = exams.map((e) => ({
+    label: short(e.term, e.checkpoint),
+    term_id: e.term.term_id,
+    checkpoint: e.checkpoint,
+    mean: examMean(e.classRows, subjects),
+    school_mean: examMean(e.schoolRows, subjects),
+  }));
+  const termExams = exams.filter((e) => e.term.term_id === term.term_id);
+  const performanceDistribution = {
+    ranges: RANGES.map((r) => r.label),
+    series: termExams.map((e) => ({
+      checkpoint: e.checkpoint,
+      label: labelOf(e.checkpoint, labels),
+      counts: rangeCounts(e.classRows.map((r) => examValue(r, subjects))),
+      students: e.classRows.filter((r) => examValue(r, subjects) !== null).length,
+    })),
+  };
+
+  // Risk at the term's prediction points (Term 3 has no End-term prediction: that is the outcome).
+  const termPoints = [CHECKPOINT.MIDTERM, CHECKPOINT.ENDTERM]
+    .map((c) => ({ checkpoint: c, point: checkpointPoint(term.term_number, c) }))
+    .filter((x) => x.point);
+  const [predictionsByPoint, interventions] = rScope
+    ? await Promise.all([
+      Promise.all(termPoints.map((x) => riskStore.listForClass(schoolId, term.academic_year, x.point, scope.classId))),
+      interventionStore.listForClass(schoolId, scope.classId),
+    ])
+    : [termPoints.map(() => []), []];
+  const riskDistribution = rScope
+    ? {
+      ranges: RANGES.map((r) => `${r.min}–${r.max === 100 ? 100 : r.max + 1}%`),
+      threshold: predictionsByPoint.flat().find((p) => Number.isFinite(p.threshold))?.threshold ?? null,
+      series: termPoints.map((x, i) => ({ checkpoint: x.checkpoint, point: x.point, label: labelOf(x.checkpoint, labels), ...riskSeries(predictionsByPoint[i], rosterIds) }))
+        .filter((x) => x.predicted > 0),
+    }
+    : null;
+
+  const point = checkpointPoint(term.term_number, scope.checkpoint);
+  const pointPredictions = predictionsByPoint[termPoints.findIndex((x) => x.point === point)] ?? [];
+  const published = set?.status === results.STATUS.PUBLISHED;
+  const chosen = exams.find((e) => e.term.term_id === term.term_id && e.checkpoint === scope.checkpoint);
+
+  const base = {
+    class_id: klass.class_id,
+    class_name: klass.name,
+    form: klass.grade ?? null,
+    stream: klass.stream ?? null,
+    class_year: klass.year ?? null,
+    class_teacher_name: await teacherName(schoolId, klass.class_teacher_id),
+    term_id: term.term_id,
+    term_name: term.name,
+    academic_year: term.academic_year,
+    checkpoint: scope.checkpoint,
+    checkpoint_label: labelOf(scope.checkpoint, labels),
+    published,
+    published_at: published ? set.published_at : null,
+    viewer_is_admin: admin,
+    viewer_is_class_teacher: classTeacher,
+    my_subjects: admin ? [] : subjectsITeach(actor, scope.classId),
+    scope: full ? 'FULL' : 'SUBJECT',
+    subjects: subjects ?? [],
+    student_count: roster.length,
+    risk_point: point,
+    rules: {
+      pass_mark: rule?.pass_mark ?? null,
+      missing_score_policy: rule?.missing_score_policy ?? null,
+      bands: rule?.bands ?? [],
+      checkpoint_weights: weightsView(rule?.checkpoint_weights),
+      opener_enabled: setup.openerEnabled,
+      labels: CHECKPOINTS.map((c) => ({ checkpoint: c, label: labelOf(c, labels) })),
+    },
+    trend,
+    performance_distribution: performanceDistribution,
+    risk_distribution: riskDistribution,
+    top_factors: topFactors(pointPredictions.filter((p) => rosterIds.has(p.student_id)), rScope),
+    intervention_methods: rScope ? interventionMethods(interventions, rScope, rosterIds) : [],
+    profile: null,
+  };
+  if (!published || !chosen) return base;
+
+  // The chosen exam in detail, compared with the published exam before it.
+  const at = exams.indexOf(chosen);
+  const previous = at > 0 ? exams[at - 1] : null;
+  const toMap = (rows) => new Map(rows.map((r) => [r.student_id, r]));
+
+  // Attendance for the period leading up to this exam (the Opener has none). Whole class only.
+  let attendance = null;
+  const period = scope.checkpoint === CHECKPOINT.OPENER ? null : scope.checkpoint;
+  if (full && period) {
+    const days = attendancePeriods(term).find((p) => p.period === period)?.school_days ?? null;
+    const entries = (await attendanceStore.listPeriod(schoolId, scope.termId, period)).filter((e) => rosterIds.has(e.student_id));
+    attendance = new Map(entries.map((e) => [e.student_id, periodSummary(e, days ?? e.school_days_when_entered).percentage]));
+  }
+
+  const profile = buildClassProfile({
+    checkpoint: scope.checkpoint,
+    roster,
+    rows: toMap(chosen.classRows),
+    previousRows: previous ? { checkpoint: previous.checkpoint, rows: toMap(previous.classRows) } : null,
+    rule,
+    subjects,
+    schoolRows: chosen.schoolRows,
+    attendance,
+    riskScope: point ? rScope : null,
+    predictions: pointPredictions,
+    interventions,
+  });
+  return {
+    ...base,
+    previous_label: previous ? `${previous.term.name} ${labelOf(previous.checkpoint, labels)}` : null,
+    school_classes: setsByTerm.get(term.term_id).filter((x) => x.checkpoint === scope.checkpoint).length,
+    profile,
+  };
 }
